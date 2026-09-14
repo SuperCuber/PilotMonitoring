@@ -1,0 +1,34 @@
+{
+  "schema_version": 2,
+  "commands": [
+    {
+      "id": "set_heading",
+      "utterances": [
+        ["set heading ", "integer"],
+        ["heading ", "integer"],
+        ["turn heading ", "integer"]
+      ],
+      "actions": [
+        {
+          "type": "set_dataref",
+          "dataref": "sim/cockpit/autopilot/heading_mag",
+          "value_type": "float",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": "annunciator_test",
+      "utterances": [
+        ["test annunciators"],
+        ["test all annunciators"]
+      ],
+      "actions": [
+        {
+          "type": "command_once",
+          "command": "sim/annunciator/test_all_annunciators"
+        }
+      ]
+    }
+  ]
+}
