@@ -4,9 +4,10 @@
     {
       "id": "set_heading",
       "utterances": [
-        ["set heading ", "integer"],
         ["heading ", "integer"],
-        ["turn heading ", "integer"]
+        ["set heading ", "integer"],
+        ["turn left heading ", "integer"]
+        ["turn right heading ", "integer"]
       ],
       "actions": [
         {

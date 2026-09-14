@@ -38,6 +38,20 @@ int main() {
       ]
     },
     {
+      "id": "set_baro",
+      "utterances": [
+        ["set baro ", "float"]
+      ],
+      "actions": [
+        {
+          "type": "set_dataref",
+          "dataref": "sim/cockpit/misc/barometer_setting",
+          "value_type": "float",
+          "value": 0
+        }
+      ]
+    },
+    {
       "id": "annunciator_test",
       "utterances": [
         ["test annunciators"],
@@ -66,18 +80,14 @@ command ::= (
     "set heading " integer_slot
   | "heading " integer_slot
   | "turn heading " integer_slot
+  | "set baro " float_slot
   | "test annunciators"
   | "test all annunciators"
 )
 
-integer_slot ::= digit+ | digit_with_spaces
-digit_with_spaces ::= digit (" " digit)+
+integer_slot ::= digit+ | digit (" " digit)+
+float_slot ::= digit+ ("." | "decimal") digit+
 digit ::= [0-9]
-
-# Future improvement:
-# We may want to add spoken integer-word support here as an alternative to digit
-# sequences, while still normalizing the final transcript to digits before
-# command matching.
 )gbnf";
 
     if (!expect(processor->grammar_text() == expected_grammar, "generated grammar did not match expectation")) {
@@ -91,8 +101,8 @@ digit ::= [0-9]
     if (!expect(heading_command->command_id == "set_heading", "expected set_heading command id")) {
         return EXIT_FAILURE;
     }
-    if (!expect(heading_command->slot_values.size() == 1 && heading_command->slot_values[0] == 30,
-                "expected heading slot to normalize to integer 30")) {
+    if (!expect(heading_command->slot_values.size() == 1 && heading_command->slot_values[0] == "030",
+                "expected heading slot to normalize to digits")) {
         return EXIT_FAILURE;
     }
     if (!expect(heading_command->actions.size() == 1, "expected one heading action")) {
@@ -107,6 +117,32 @@ digit ::= [0-9]
         return EXIT_FAILURE;
     }
     if (!expect(heading_command->actions[0].float_value == 30.0F, "expected heading float value to be 30")) {
+        return EXIT_FAILURE;
+    }
+
+    const auto baro_command = processor->match("set baro 2 9 decimal 9 2");
+    if (!expect(baro_command.has_value(), "expected baro command to match")) {
+        return EXIT_FAILURE;
+    }
+    if (!expect(baro_command->command_id == "set_baro", "expected set_baro command id")) {
+        return EXIT_FAILURE;
+    }
+    if (!expect(baro_command->slot_values.size() == 1 && baro_command->slot_values[0] == "29.92",
+                "expected baro slot to normalize to float text")) {
+        return EXIT_FAILURE;
+    }
+    if (!expect(baro_command->actions.size() == 1, "expected one baro action")) {
+        return EXIT_FAILURE;
+    }
+    if (!expect(baro_command->actions[0].type == ResolvedAction::Type::SetDataRef,
+                "expected baro action to be set_dataref")) {
+        return EXIT_FAILURE;
+    }
+    if (!expect(baro_command->actions[0].dataref == "sim/cockpit/misc/barometer_setting",
+                "expected baro action dataref")) {
+        return EXIT_FAILURE;
+    }
+    if (!expect(baro_command->actions[0].float_value == 29.92F, "expected baro float value to be 29.92")) {
         return EXIT_FAILURE;
     }
 

@@ -12,6 +12,7 @@ struct UtterancePart {
     enum class Type {
         Literal,
         IntegerSlot,
+        FloatSlot,
     };
 
     Type type = Type::Literal;
@@ -53,7 +54,7 @@ struct ResolvedAction {
 
 struct MatchedCommand {
     std::string command_id;
-    std::vector<int> slot_values;
+    std::vector<std::string> slot_values;
     std::vector<ResolvedAction> actions;
 };
 

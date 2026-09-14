@@ -50,6 +50,20 @@ std::string normalize_literal(std::string_view text) {
     return normalized;
 }
 
+std::string_view trim_spaces(std::string_view text) {
+    std::size_t start = 0;
+    while (start < text.size() && text[start] == ' ') {
+        ++start;
+    }
+
+    std::size_t end = text.size();
+    while (end > start && text[end - 1] == ' ') {
+        --end;
+    }
+
+    return text.substr(start, end - start);
+}
+
 std::string escape_gbnf_literal(std::string_view text) {
     std::string escaped;
     escaped.reserve(text.size());
@@ -81,7 +95,7 @@ std::string escape_gbnf_literal(std::string_view text) {
 }
 
 bool is_slot_type(std::string_view token) {
-    return token == "integer";
+    return token == "integer" || token == "float";
 }
 
 UtterancePart parse_utterance_part(const json& part_json) {
@@ -90,8 +104,11 @@ UtterancePart parse_utterance_part(const json& part_json) {
     }
 
     const std::string token = part_json.get<std::string>();
-    if (is_slot_type(token)) {
+    if (token == "integer") {
         return UtterancePart{UtterancePart::Type::IntegerSlot, {}};
+    }
+    if (token == "float") {
+        return UtterancePart{UtterancePart::Type::FloatSlot, {}};
     }
 
     return UtterancePart{UtterancePart::Type::Literal, normalize_literal(token)};
@@ -205,8 +222,10 @@ std::string generate_grammar_text(const std::vector<CommandDefinition>& commands
 
                 if (part.type == UtterancePart::Type::Literal) {
                     grammar << '"' << escape_gbnf_literal(part.text) << '"';
-                } else {
+                } else if (part.type == UtterancePart::Type::IntegerSlot) {
                     grammar << "integer_slot";
+                } else {
+                    grammar << "float_slot";
                 }
             }
             grammar << '\n';
@@ -214,18 +233,16 @@ std::string generate_grammar_text(const std::vector<CommandDefinition>& commands
     }
 
     grammar << ")\n\n";
-    grammar << "integer_slot ::= digit+ | digit_with_spaces\n";
-    grammar << "digit_with_spaces ::= digit (\" \" digit)+\n";
-    grammar << "digit ::= [0-9]\n\n";
-    grammar << "# Future improvement:\n";
-    grammar << "# We may want to add spoken integer-word support here as an alternative to digit\n";
-    grammar << "# sequences, while still normalizing the final transcript to digits before\n";
-    grammar << "# command matching.\n";
+    // Future improvement: support spoken number words here and keep normalizing
+    // recognized slot text into canonical digits before command matching.
+    grammar << "integer_slot ::= digit+ | digit (\" \" digit)+\n";
+    grammar << "float_slot ::= digit+ (\".\" | \"decimal\") digit+\n";
+    grammar << "digit ::= [0-9]\n";
 
     return grammar.str();
 }
 
-bool parse_integer_slot_text(std::string_view text, int& value) {
+bool normalize_integer_slot_text(std::string_view text, std::string& normalized_value) {
     if (text.empty()) {
         return false;
     }
@@ -247,7 +264,7 @@ bool parse_integer_slot_text(std::string_view text, int& value) {
     }
 
     if (all_digits) {
-        value = std::stoi(digits_only);
+        normalized_value = digits_only;
         return true;
     }
 
@@ -266,7 +283,95 @@ bool parse_integer_slot_text(std::string_view text, int& value) {
         }
     }
 
-    value = std::stoi(digits_only);
+    normalized_value = digits_only;
+    return true;
+}
+
+bool normalize_float_slot_text(std::string_view text, std::string& normalized_value) {
+    if (text.empty()) {
+        return false;
+    }
+
+    std::size_t separator_position = std::string_view::npos;
+    std::size_t separator_length = 0;
+
+    if (const std::size_t decimal_word_position = text.find("decimal");
+        decimal_word_position != std::string_view::npos) {
+        separator_position = decimal_word_position;
+        separator_length = 7;
+    }
+
+    if (const std::size_t dot_position = text.find('.');
+        dot_position != std::string_view::npos &&
+        (separator_position == std::string_view::npos || dot_position < separator_position)) {
+        separator_position = dot_position;
+        separator_length = 1;
+    }
+
+    if (separator_position == std::string_view::npos) {
+        return false;
+    }
+
+    const std::string_view whole_part = trim_spaces(text.substr(0, separator_position));
+    const std::string_view fractional_part =
+        trim_spaces(text.substr(separator_position + separator_length));
+    if (whole_part.empty() || fractional_part.empty()) {
+        return false;
+    }
+
+    std::string normalized_whole_part;
+    std::string normalized_fractional_part;
+    if (!normalize_integer_slot_text(whole_part, normalized_whole_part) ||
+        !normalize_integer_slot_text(fractional_part, normalized_fractional_part)) {
+        return false;
+    }
+
+    normalized_value = normalized_whole_part + "." + normalized_fractional_part;
+    return true;
+}
+
+bool try_parse_int(std::string_view text, int& value) {
+    if (text.empty()) {
+        return false;
+    }
+    for (const char ch : text) {
+        if (std::isdigit(static_cast<unsigned char>(ch)) == 0) {
+            return false;
+        }
+    }
+    value = std::stoi(std::string(text));
+    return true;
+}
+
+bool try_parse_float(std::string_view text, float& value) {
+    if (text.empty()) {
+        return false;
+    }
+
+    bool saw_dot = false;
+    for (const char ch : text) {
+        if (ch == '.') {
+            if (saw_dot) {
+                return false;
+            }
+            saw_dot = true;
+            continue;
+        }
+        if (std::isdigit(static_cast<unsigned char>(ch)) == 0) {
+            return false;
+        }
+    }
+
+    if (!saw_dot) {
+        int integer_value = 0;
+        if (!try_parse_int(text, integer_value)) {
+            return false;
+        }
+        value = static_cast<float>(integer_value);
+        return true;
+    }
+
+    value = std::stof(std::string(text));
     return true;
 }
 
@@ -275,7 +380,7 @@ bool match_utterance_parts(
     std::size_t part_index,
     std::string_view transcript,
     std::size_t text_index,
-    std::vector<int>& slots) {
+    std::vector<std::string>& slots) {
     if (part_index == utterance.size()) {
         return text_index == transcript.size();
     }
@@ -297,19 +402,30 @@ bool match_utterance_parts(
     std::size_t slot_end = text_index;
     while (slot_end < transcript.size()) {
         const char ch = transcript[slot_end];
-        if (std::isdigit(static_cast<unsigned char>(ch)) == 0 && ch != ' ') {
+        const bool allowed_digit = std::isdigit(static_cast<unsigned char>(ch)) != 0;
+        const bool allowed_integer_char = ch == ' ';
+        const bool allowed_float_char =
+            allowed_integer_char || ch == '.' || ('a' <= ch && ch <= 'z');
+        const bool allowed_char = part.type == UtterancePart::Type::IntegerSlot
+            ? (allowed_digit || allowed_integer_char)
+            : (allowed_digit || allowed_float_char);
+        if (!allowed_char) {
             break;
         }
         ++slot_end;
     }
 
     for (std::size_t candidate_end = slot_end; candidate_end > text_index; --candidate_end) {
-        int value = 0;
-        if (!parse_integer_slot_text(transcript.substr(text_index, candidate_end - text_index), value)) {
+        std::string normalized_slot_value;
+        const std::string_view candidate = transcript.substr(text_index, candidate_end - text_index);
+        const bool parsed = part.type == UtterancePart::Type::IntegerSlot
+            ? normalize_integer_slot_text(candidate, normalized_slot_value)
+            : normalize_float_slot_text(candidate, normalized_slot_value);
+        if (!parsed) {
             continue;
         }
 
-        slots.push_back(value);
+        slots.push_back(std::move(normalized_slot_value));
         if (match_utterance_parts(utterance, part_index + 1, transcript, candidate_end, slots)) {
             return true;
         }
@@ -326,7 +442,7 @@ std::optional<MatchedCommand> match_command(
 
     for (const auto& command : commands) {
         for (const auto& utterance : command.utterances) {
-            std::vector<int> slots;
+            std::vector<std::string> slots;
             if (!match_utterance_parts(utterance, 0, normalized_transcript, 0, slots)) {
                 continue;
             }
@@ -349,8 +465,20 @@ std::optional<MatchedCommand> match_command(
                     if (static_cast<std::size_t>(action_definition.value) >= slots.size()) {
                         return std::nullopt;
                     }
-                    action.integer_value = slots[static_cast<std::size_t>(action_definition.value)];
-                    action.float_value = static_cast<float>(action.integer_value);
+                    const std::string& slot_text = slots[static_cast<std::size_t>(action_definition.value)];
+                    if (action.value_type == "integer") {
+                        if (!try_parse_int(slot_text, action.integer_value)) {
+                            return std::nullopt;
+                        }
+                        action.float_value = static_cast<float>(action.integer_value);
+                    } else if (action.value_type == "float") {
+                        if (!try_parse_float(slot_text, action.float_value)) {
+                            return std::nullopt;
+                        }
+                        action.integer_value = static_cast<int>(action.float_value);
+                    } else {
+                        return std::nullopt;
+                    }
                 }
 
                 matched.actions.push_back(std::move(action));
