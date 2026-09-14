@@ -167,7 +167,7 @@ CommandDefinition parse_command(const json& command_json) {
 std::vector<CommandDefinition> parse_commands(std::string_view json_text) {
     const json root = json::parse(json_text.begin(), json_text.end());
     const int schema_version = root.at("schema_version").get<int>();
-    if (schema_version != 2) {
+    if (schema_version != 1) {
         throw std::runtime_error("unsupported schema_version");
     }
 

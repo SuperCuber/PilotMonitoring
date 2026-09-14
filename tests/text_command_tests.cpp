@@ -19,7 +19,7 @@ bool expect(bool condition, const std::string& message) {
 int main() {
     const std::string config = R"json(
 {
-  "schema_version": 2,
+  "schema_version": 1,
   "commands": [
     {
       "id": "set_heading",
