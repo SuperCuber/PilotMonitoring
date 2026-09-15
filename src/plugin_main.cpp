@@ -103,7 +103,7 @@ void execute_command(const MatchedCommand& command) {
 
         if (action.value_type == "float") {
             XPLMSetDataf(dataref, action.float_value);
-        } else if (action.value_type == "integer") {
+        } else if (action.value_type == "<integer>") {
             XPLMSetDatai(dataref, action.integer_value);
         } else {
             log_message("Pilot Monitoring: unsupported resolved value type.\n");
@@ -124,9 +124,9 @@ float process_voice_results(float, float, int, void*) {
             continue;
         }
 
-        log_message("Pilot Monitoring transcript: ");
+        log_message("Pilot Monitoring: transcript: \"");
         log_message(result->text.c_str());
-        log_message("\n");
+        log_message("\"\n");
 
         if (!g_command_processor) {
             log_message("Pilot Monitoring: command processor is unavailable.\n");

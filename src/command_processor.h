@@ -8,7 +8,7 @@
 
 #include "grammar-parser.h"
 
-struct UtterancePart {
+struct PhrasePart {
     enum class Type {
         Literal,
         IntegerSlot,
@@ -34,7 +34,7 @@ struct CommandActionDefinition {
 
 struct CommandDefinition {
     std::string id;
-    std::vector<std::vector<UtterancePart>> utterances;
+    std::vector<std::vector<PhrasePart>> phrases;
     std::vector<CommandActionDefinition> actions;
 };
 

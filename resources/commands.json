@@ -3,31 +3,60 @@
   "commands": [
     {
       "id": "set_heading",
-      "utterances": [
-        ["heading ", "integer"],
-        ["set heading ", "integer"],
-        ["turn left heading ", "integer"]
-        ["turn right heading ", "integer"]
+      "aircraft": ".*",
+      "phrases": [
+        ["heading ", "<integer>"],
+        ["set heading ", "<integer>"],
+        ["turn left heading ", "<integer>"],
+        ["turn right heading ", "<integer>"]
       ],
       "actions": [
         {
           "type": "set_dataref",
           "dataref": "sim/cockpit/autopilot/heading_mag",
           "value_type": "float",
-          "value": 0
+          "value_slot": 0
         }
       ]
     },
     {
       "id": "annunciator_test",
-      "utterances": [
-        ["test annunciators"],
-        ["test all annunciators"]
+      "aircraft": "C172",
+      "phrases": [
+        ["test annunciators"]
       ],
       "actions": [
         {
           "type": "command_once",
           "command": "sim/annunciator/test_all_annunciators"
+        }
+      ]
+    },
+    {
+      "id": "gear_up",
+      "aircraft": "B738",
+      "phrases": [
+        ["gear up"]
+      ],
+      "actions": [
+        {
+          "type": "command_once",
+          "command": ""
+        }
+      ]
+    },
+    {
+      "id": "tune_radio",
+      "aircraft": ".*",
+      "phrases": [
+        ["switch to ", "<float>"]
+      ],
+      "actions": [
+        {
+          "type": "set_dataref",
+          "dataref": "com1 standby",
+          "value_type": "float",
+          "value_slot": 0
         }
       ]
     }

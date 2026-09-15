@@ -153,7 +153,7 @@ void VoiceService::worker_main() {
             break;
         }
 
-        auto samples = capture_utterance();
+        auto samples = capture_phrase();
         if (!running_.load() || samples.empty()) {
             continue;
         }
@@ -167,7 +167,7 @@ void VoiceService::worker_main() {
     CoUninitialize();
 }
 
-std::vector<float> VoiceService::capture_utterance() {
+std::vector<float> VoiceService::capture_phrase() {
     ComPtr<IMMDeviceEnumerator> enumerator;
     ComPtr<IMMDevice> device;
     ComPtr<IAudioClient> audio_client;
@@ -243,7 +243,7 @@ std::vector<float> VoiceService::capture_utterance() {
 
 std::optional<std::string> VoiceService::transcribe(const std::vector<float>& samples) {
     const bool use_grammar =
-        !grammar_.rules.empty() && grammar_.symbol_ids.find("root") != grammar_.symbol_ids.end();
+         !grammar_.rules.empty() && grammar_.symbol_ids.find("root") != grammar_.symbol_ids.end();
     auto params = whisper_full_default_params(
         use_grammar ? WHISPER_SAMPLING_BEAM_SEARCH : WHISPER_SAMPLING_GREEDY);
     params.print_progress = false;
@@ -278,5 +278,6 @@ std::optional<std::string> VoiceService::transcribe(const std::vector<float>& sa
         push_result(false, "no speech was recognized");
         return std::nullopt;
     }
+    transcript.erase(0, 1); // Leading space hardcoded into grammar
     return transcript;
 }

@@ -5,6 +5,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+#include <iostream> // TODO: remove
 
 #include "json.hpp"
 
@@ -95,23 +96,23 @@ std::string escape_gbnf_literal(std::string_view text) {
 }
 
 bool is_slot_type(std::string_view token) {
-    return token == "integer" || token == "float";
+    return token == "<integer>" || token == "<float>";
 }
 
-UtterancePart parse_utterance_part(const json& part_json) {
+PhrasePart parse_phrase_part(const json& part_json) {
     if (!part_json.is_string()) {
-        throw std::runtime_error("utterance parts must be strings");
+        throw std::runtime_error("phrase parts must be strings");
     }
 
     const std::string token = part_json.get<std::string>();
-    if (token == "integer") {
-        return UtterancePart{UtterancePart::Type::IntegerSlot, {}};
+    if (token == "<integer>") {
+        return PhrasePart{PhrasePart::Type::IntegerSlot, {}};
     }
-    if (token == "float") {
-        return UtterancePart{UtterancePart::Type::FloatSlot, {}};
+    if (token == "<float>") {
+        return PhrasePart{PhrasePart::Type::FloatSlot, {}};
     }
 
-    return UtterancePart{UtterancePart::Type::Literal, normalize_literal(token)};
+    return PhrasePart{PhrasePart::Type::Literal, normalize_literal(token)};
 }
 
 CommandActionDefinition parse_action(const json& action_json) {
@@ -132,7 +133,7 @@ CommandActionDefinition parse_action(const json& action_json) {
         action.type = CommandActionDefinition::Type::SetDataRef;
         action.dataref = action_json.at("dataref").get<std::string>();
         action.value_type = normalize_ascii_lower(action_json.at("value_type").get<std::string>());
-        action.value = action_json.at("value").get<int>();
+        action.value = action_json.at("value_slot").get<int>();
         if (action.value < 0) {
             throw std::runtime_error("set_dataref value must be a non-negative slot index");
         }
@@ -153,21 +154,21 @@ CommandDefinition parse_command(const json& command_json) {
     CommandDefinition command;
     command.id = command_json.at("id").get<std::string>();
 
-    const auto& utterances_json = command_json.at("utterances");
-    if (!utterances_json.is_array() || utterances_json.empty()) {
-        throw std::runtime_error("command must have at least one utterance");
+    const auto& phrases_json = command_json.at("phrases");
+    if (!phrases_json.is_array() || phrases_json.empty()) {
+        throw std::runtime_error("command must have at least one phrase");
     }
 
-    for (const auto& utterance_json : utterances_json) {
-        if (!utterance_json.is_array() || utterance_json.empty()) {
-            throw std::runtime_error("utterances must be non-empty arrays");
+    for (const auto& phrase_json : phrases_json) {
+        if (!phrase_json.is_array() || phrase_json.empty()) {
+            throw std::runtime_error("phrases must be non-empty arrays");
         }
 
-        std::vector<UtterancePart> utterance;
-        for (const auto& part_json : utterance_json) {
-            utterance.push_back(parse_utterance_part(part_json));
+        std::vector<PhrasePart> phrase;
+        for (const auto& part_json : phrase_json) {
+            phrase.push_back(parse_phrase_part(part_json));
         }
-        command.utterances.push_back(std::move(utterance));
+        command.phrases.push_back(std::move(phrase));
     }
 
     const auto& actions_json = command_json.at("actions");
@@ -204,25 +205,26 @@ std::vector<CommandDefinition> parse_commands(std::string_view json_text) {
 
 std::string generate_grammar_text(const std::vector<CommandDefinition>& commands) {
     std::ostringstream grammar;
-    grammar << "root ::= command\n\n";
+    grammar << "root ::= init command\n";
+    grammar << "init ::= \" \"\n\n"; // Important for correct transcription apparently
     grammar << "command ::= (\n";
 
     bool first_branch = true;
     for (const auto& command : commands) {
-        for (const auto& utterance : command.utterances) {
+        for (const auto& phrase : command.phrases) {
             grammar << (first_branch ? "    " : "  | ");
             first_branch = false;
 
             bool first_part = true;
-            for (const auto& part : utterance) {
+            for (const auto& part : phrase) {
                 if (!first_part) {
                     grammar << ' ';
                 }
                 first_part = false;
 
-                if (part.type == UtterancePart::Type::Literal) {
+                if (part.type == PhrasePart::Type::Literal) {
                     grammar << '"' << escape_gbnf_literal(part.text) << '"';
-                } else if (part.type == UtterancePart::Type::IntegerSlot) {
+                } else if (part.type == PhrasePart::Type::IntegerSlot) {
                     grammar << "integer_slot";
                 } else {
                     grammar << "float_slot";
@@ -375,24 +377,24 @@ bool try_parse_float(std::string_view text, float& value) {
     return true;
 }
 
-bool match_utterance_parts(
-    const std::vector<UtterancePart>& utterance,
+bool match_phrase_parts(
+    const std::vector<PhrasePart>& phrase,
     std::size_t part_index,
     std::string_view transcript,
     std::size_t text_index,
     std::vector<std::string>& slots) {
-    if (part_index == utterance.size()) {
+    if (part_index == phrase.size()) {
         return text_index == transcript.size();
     }
 
-    const auto& part = utterance[part_index];
-    if (part.type == UtterancePart::Type::Literal) {
+    const auto& part = phrase[part_index];
+    if (part.type == PhrasePart::Type::Literal) {
         if (transcript.substr(text_index, part.text.size()) != part.text) {
             return false;
         }
 
-        return match_utterance_parts(
-            utterance,
+        return match_phrase_parts(
+            phrase,
             part_index + 1,
             transcript,
             text_index + part.text.size(),
@@ -406,7 +408,7 @@ bool match_utterance_parts(
         const bool allowed_integer_char = ch == ' ';
         const bool allowed_float_char =
             allowed_integer_char || ch == '.' || ('a' <= ch && ch <= 'z');
-        const bool allowed_char = part.type == UtterancePart::Type::IntegerSlot
+        const bool allowed_char = part.type == PhrasePart::Type::IntegerSlot
             ? (allowed_digit || allowed_integer_char)
             : (allowed_digit || allowed_float_char);
         if (!allowed_char) {
@@ -418,7 +420,7 @@ bool match_utterance_parts(
     for (std::size_t candidate_end = slot_end; candidate_end > text_index; --candidate_end) {
         std::string normalized_slot_value;
         const std::string_view candidate = transcript.substr(text_index, candidate_end - text_index);
-        const bool parsed = part.type == UtterancePart::Type::IntegerSlot
+        const bool parsed = part.type == PhrasePart::Type::IntegerSlot
             ? normalize_integer_slot_text(candidate, normalized_slot_value)
             : normalize_float_slot_text(candidate, normalized_slot_value);
         if (!parsed) {
@@ -426,7 +428,7 @@ bool match_utterance_parts(
         }
 
         slots.push_back(std::move(normalized_slot_value));
-        if (match_utterance_parts(utterance, part_index + 1, transcript, candidate_end, slots)) {
+        if (match_phrase_parts(phrase, part_index + 1, transcript, candidate_end, slots)) {
             return true;
         }
         slots.pop_back();
@@ -441,9 +443,9 @@ std::optional<MatchedCommand> match_command(
     const std::string normalized_transcript = normalize_ascii_lower(transcript);
 
     for (const auto& command : commands) {
-        for (const auto& utterance : command.utterances) {
+        for (const auto& phrase : command.phrases) {
             std::vector<std::string> slots;
-            if (!match_utterance_parts(utterance, 0, normalized_transcript, 0, slots)) {
+            if (!match_phrase_parts(phrase, 0, normalized_transcript, 0, slots)) {
                 continue;
             }
 

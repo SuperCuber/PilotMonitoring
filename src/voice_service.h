@@ -32,7 +32,7 @@ public:
 
 private:
     void worker_main();
-    std::vector<float> capture_utterance();
+    std::vector<float> capture_phrase();
     std::optional<std::string> transcribe(const std::vector<float>& samples);
     void push_result(bool recognized, std::string text);
 
