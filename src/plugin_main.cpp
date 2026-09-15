@@ -92,6 +92,11 @@ void execute_command(const MatchedCommand& command) {
         }
 
         const XPLMDataRef dataref = XPLMFindDataRef(action.dataref.c_str());
+        log_message("Pilot Monitoring: setting dataref ");
+        log_message(action.dataref.c_str());
+        log_message(" with value type ");
+        log_message(action.value_type.c_str());
+        log_message("\n");
         if (dataref == nullptr) {
             log_message("Pilot Monitoring: dataref target is unavailable.\n");
             continue;
@@ -103,8 +108,10 @@ void execute_command(const MatchedCommand& command) {
 
         if (action.value_type == "float") {
             XPLMSetDataf(dataref, action.float_value);
-        } else if (action.value_type == "<integer>") {
+        } else if (action.value_type == "integer") {
             XPLMSetDatai(dataref, action.integer_value);
+        } else if (action.value_type == "int_div1000") {
+            XPLMSetDatai(dataref, action.float_value * 1000);
         } else {
             log_message("Pilot Monitoring: unsupported resolved value type.\n");
         }

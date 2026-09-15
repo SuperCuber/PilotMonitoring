@@ -136,8 +136,8 @@ CommandActionDefinition parse_action(const json& action_json) {
         if (action.value < 0) {
             throw std::runtime_error("set_dataref value must be a non-negative slot index");
         }
-        if (action.value_type != "integer" && action.value_type != "float") {
-            throw std::runtime_error("set_dataref value_type must be integer or float");
+        if (action.value_type != "integer" && action.value_type != "float" && action.value_type != "int_div1000") {
+            throw std::runtime_error("set_dataref value_type not recognized");
         }
         return action;
     }
@@ -472,7 +472,7 @@ std::optional<MatchedCommand> match_command(
                             return std::nullopt;
                         }
                         action.float_value = static_cast<float>(action.integer_value);
-                    } else if (action.value_type == "float") {
+                    } else if (action.value_type == "float" || action.value_type == "int_div1000") {
                         if (!try_parse_float(slot_text, action.float_value)) {
                             return std::nullopt;
                         }

@@ -54,8 +54,8 @@
       "actions": [
         {
           "type": "set_dataref",
-          "dataref": "sim/cockpit/radios/com1_stdby_freq_hz",
-          "value_type": "float",
+          "dataref": "sim/cockpit2/radios/actuators/com1_standby_frequency_hz_833",
+          "value_type": "int_div1000",
           "value_slot": 0
         }
       ]
