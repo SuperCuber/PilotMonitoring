@@ -71,17 +71,11 @@ digit ::= [0-9]
 )gbnf";
 
     if (!expect(processor->grammar_text() == expected_grammar, "generated grammar did not match expectation")) {
-        std::cout << "Generated grammar:\n" << processor->grammar_text() << std::endl;
         return EXIT_FAILURE;
     }
 
     const auto heading_command = processor->match("SET HEADING 0 3 0");
     if (!expect(heading_command->command_id == "set_heading", "expected set_heading command id")) {
-        if (heading_command->command_id.empty()) {
-            std::cout << "Actual: " << heading_command->command_id << std::endl;
-        } else {
-            std::cout << "Actual: null\n";
-        }
         return EXIT_FAILURE;
     }
     if (!expect(heading_command->slot_values.size() == 1 && heading_command->slot_values[0] == "030",
@@ -127,3 +121,4 @@ digit ::= [0-9]
 
     return EXIT_SUCCESS;
 }
+// TODO: implement & test aircraft filter
