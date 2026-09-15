@@ -5,7 +5,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <utility>
-#include <iostream> // TODO: remove
 
 #include "json.hpp"
 

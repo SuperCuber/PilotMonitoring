@@ -134,7 +134,11 @@ float process_voice_results(float, float, int, void*) {
         }
 
         const auto matched_command = g_command_processor->match(result->text);
-        if (!matched_command) {
+        if (matched_command) {
+            log_message("Pilot Monitoring: matched command: ");
+            log_message(matched_command->command_id.c_str());
+            log_message("\n");
+        } else {
             log_message("Pilot Monitoring: transcript did not match a configured command.\n");
             continue;
         }

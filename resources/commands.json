@@ -49,12 +49,12 @@
       "id": "tune_radio",
       "aircraft": ".*",
       "phrases": [
-        ["switch to ", "<float>"]
+        ["contact ", "<float>"]
       ],
       "actions": [
         {
           "type": "set_dataref",
-          "dataref": "com1 standby",
+          "dataref": "sim/cockpit/radios/com1_stdby_freq_hz",
           "value_type": "float",
           "value_slot": 0
         }

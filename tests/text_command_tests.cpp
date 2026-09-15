@@ -23,6 +23,7 @@ int main() {
   "commands": [
     {
       "id": "set_heading",
+      "aircraft": ".*",
       "phrases": [ ["set heading ", "<integer>"] ],
       "actions": [
         {
@@ -35,6 +36,7 @@ int main() {
     },
     {
       "id": "annunciator_test",
+      "aircraft": ".*",
       "phrases": [
         ["test annunciators"],
         ["test all annunciators"]
