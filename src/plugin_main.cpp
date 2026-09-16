@@ -4,6 +4,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include "XPLMDataAccess.h"
 #include "XPLMMenus.h"
@@ -12,7 +13,7 @@
 #include "XPLMUtilities.h"
 #include "whisper.h"
 
-#include "command_processor.h"
+#include "execution_engine.h"
 #include "voice_service.h"
 
 namespace {
@@ -26,7 +27,7 @@ char kMenuActionReloadPlugins[] = "reload_plugins";
 XPLMCommandRef g_ptt_command = nullptr;
 XPLMMenuID g_menu = nullptr;
 std::unique_ptr<VoiceService> g_voice_service;
-std::unique_ptr<CommandProcessor> g_command_processor;
+std::unique_ptr<ExecutionEngine> g_execution_engine;
 bool g_flight_loop_registered = false;
 
 void log_message(const char* message) {
@@ -65,7 +66,7 @@ std::filesystem::path model_path() {
 }
 
 std::filesystem::path commands_path() {
-    return plugin_resources_path() / "commands.json";
+    return plugin_resources_path() / "commands.lua";
 }
 
 void log_grammar(std::string_view grammar_text) {
@@ -78,44 +79,57 @@ void log_grammar(std::string_view grammar_text) {
     }
 }
 
-void execute_command(const MatchedCommand& command) {
-    for (const auto& action : command.actions) {
-        if (action.type == ResolvedAction::Type::CommandOnce) {
-            const XPLMCommandRef command_ref = XPLMFindCommand(action.command.c_str());
+class XPlaneDatarefHost final : public DatarefHost {
+public:
+    std::optional<int> get_integer(std::string_view name, std::string& error) override {
+        const XPLMDataRef ref = XPLMFindDataRef(std::string(name).c_str());
+        if (!ref) { error = "dataref unavailable: " + std::string(name); return std::nullopt; }
+        return XPLMGetDatai(ref);
+    }
+    std::optional<float> get_float(std::string_view name, std::string& error) override {
+        const XPLMDataRef ref = XPLMFindDataRef(std::string(name).c_str());
+        if (!ref) { error = "dataref unavailable: " + std::string(name); return std::nullopt; }
+        return XPLMGetDataf(ref);
+    }
+    std::optional<bool> get_boolean(std::string_view name, std::string& error) override {
+        const auto value = get_integer(name, error);
+        if (!value) return std::nullopt;
+        return *value != 0;
+    }
+};
+
+XPlaneDatarefHost g_dataref_host;
+
+void execute_action(const Action& action) {
+    std::visit([](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, TriggerCommandAction>) {
+            const XPLMCommandRef command_ref = XPLMFindCommand(value.command.c_str());
             if (command_ref == nullptr) {
                 log_message("Pilot Monitoring: command_once target is unavailable.\n");
-                continue;
+                return;
             }
-
             XPLMCommandOnce(command_ref);
-            continue;
-        }
-
-        const XPLMDataRef dataref = XPLMFindDataRef(action.dataref.c_str());
+            return;
+        } else {
+        const std::string& dataref_name = value.dataref;
+        const XPLMDataRef dataref = XPLMFindDataRef(dataref_name.c_str());
         log_message("Pilot Monitoring: setting dataref ");
-        log_message(action.dataref.c_str());
-        log_message(" with value type ");
-        log_message(action.value_type.c_str());
+        log_message(dataref_name.c_str());
         log_message("\n");
         if (dataref == nullptr) {
             log_message("Pilot Monitoring: dataref target is unavailable.\n");
-            continue;
+            return;
         }
         if (XPLMCanWriteDataRef(dataref) == 0) {
             log_message("Pilot Monitoring: dataref target is read-only.\n");
-            continue;
+            return;
         }
-
-        if (action.value_type == "float") {
-            XPLMSetDataf(dataref, action.float_value);
-        } else if (action.value_type == "integer") {
-            XPLMSetDatai(dataref, action.integer_value);
-        } else if (action.value_type == "int_div1000") {
-            XPLMSetDatai(dataref, action.float_value * 1000);
-        } else {
-            log_message("Pilot Monitoring: unsupported resolved value type.\n");
+        if constexpr (std::is_same_v<T, SetIntegerDatarefAction>) XPLMSetDatai(dataref, value.value);
+        else if constexpr (std::is_same_v<T, SetFloatDatarefAction>) XPLMSetDataf(dataref, value.value);
+        else if constexpr (std::is_same_v<T, SetBooleanDatarefAction>) XPLMSetDatai(dataref, value.value ? 1 : 0);
         }
-    }
+    }, action);
 }
 
 float process_voice_results(float, float, int, void*) {
@@ -135,22 +149,14 @@ float process_voice_results(float, float, int, void*) {
         log_message(result->text.c_str());
         log_message("\"\n");
 
-        if (!g_command_processor) {
-            log_message("Pilot Monitoring: command processor is unavailable.\n");
+        if (!g_execution_engine) {
+            log_message("Pilot Monitoring: execution engine is unavailable.\n");
             continue;
         }
-
-        const auto matched_command = g_command_processor->match(result->text);
-        if (matched_command) {
-            log_message("Pilot Monitoring: matched command: ");
-            log_message(matched_command->command_id.c_str());
-            log_message("\n");
-        } else {
-            log_message("Pilot Monitoring: transcript did not match a configured command.\n");
-            continue;
-        }
-
-        execute_command(*matched_command);
+        std::string error;
+        const auto actions = g_execution_engine->handle_event(Event::transcript_event(result->text), error);
+        if (!error.empty()) { log_line("Pilot Monitoring: script error: " + error); continue; }
+        for (const auto& action : actions) execute_action(action);
     }
     return 0.1F;
 }
@@ -195,7 +201,7 @@ PLUGIN_API void XPluginStop() {
         g_voice_service->stop();
         g_voice_service.reset();
     }
-    g_command_processor.reset();
+    g_execution_engine.reset();
     if (g_menu != nullptr) {
         XPLMDestroyMenu(g_menu);
         g_menu = nullptr;
@@ -209,17 +215,18 @@ PLUGIN_API void XPluginStop() {
 
 PLUGIN_API int XPluginEnable() {
     std::string error_message;
-    if (const auto processor = CommandProcessor::load_from_file(commands_path(), error_message)) {
-        g_command_processor = std::make_unique<CommandProcessor>(*processor);
-        log_grammar(g_command_processor->grammar_text());
+    auto engine = std::make_unique<ExecutionEngine>(&g_dataref_host);
+    if (engine->load_from_file(commands_path(), error_message)) {
+        g_execution_engine = std::move(engine);
+        log_grammar(g_execution_engine->grammar_text());
     } else {
         log_message("Pilot Monitoring: failed to load commands.\n");
         log_line(error_message);
-        g_command_processor.reset();
+        g_execution_engine.reset();
     }
 
     const grammar_parser::parse_state grammar =
-        g_command_processor ? g_command_processor->grammar() : grammar_parser::parse_state{};
+        g_execution_engine ? g_execution_engine->grammar() : grammar_parser::parse_state{};
     g_voice_service = std::make_unique<VoiceService>(model_path().string(), grammar);
     g_voice_service->start();
     XPLMRegisterFlightLoopCallback(process_voice_results, 0.1F, nullptr);
@@ -237,7 +244,7 @@ PLUGIN_API void XPluginDisable() {
         g_voice_service->stop();
         g_voice_service.reset();
     }
-    g_command_processor.reset();
+    g_execution_engine.reset();
     log_message("Pilot Monitoring: plugin disabled.\n");
 }
 

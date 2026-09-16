@@ -10,6 +10,11 @@ include(CTest)
 
 set(XP_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/XPSDK430/SDK")
 
+file(GLOB LUA_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/libs/lua-5.4.7/src/*.c")
+list(FILTER LUA_SOURCES EXCLUDE REGEX "/lua\.c$|/luac\.c$")
+add_library(lua54 STATIC ${LUA_SOURCES})
+target_include_directories(lua54 PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/lua-5.4.7/src")
+
 if (NOT EXISTS "${XP_SDK_DIR}/CHeaders/XPLM/XPLMPlugin.h")
     message(FATAL_ERROR "X-Plane SDK headers were not found under ${XP_SDK_DIR}")
 endif()
@@ -25,7 +30,7 @@ set(WHISPER_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
 add_subdirectory(libs/whisper.cpp EXCLUDE_FROM_ALL)
 
 add_library(pilotmonitoring_core STATIC
-    src/command_processor.cpp
+    src/execution_engine.cpp
     libs/whisper.cpp/examples/grammar-parser.cpp
 )
 
@@ -34,7 +39,9 @@ target_include_directories(pilotmonitoring_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/whisper.cpp/examples"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/whisper.cpp/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/whisper.cpp/ggml/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/lua-5.4.7/src"
 )
+target_link_libraries(pilotmonitoring_core PUBLIC lua54)
 
 add_library(PilotMonitoring SHARED
     src/plugin_main.cpp
@@ -86,8 +93,8 @@ add_custom_command(TARGET PilotMonitoring POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/README.txt"
         "${CMAKE_BINARY_DIR}/package/PilotMonitoring/README.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/resources/commands.json"
-        "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/commands.json"
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/commands.lua"
+        "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/commands.lua"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/libs/whisper.cpp/models/ggml-base.en.bin"
         "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/models/ggml-base.en.bin"
@@ -95,13 +102,23 @@ add_custom_command(TARGET PilotMonitoring POST_BUILD
 )
 
 if (BUILD_TESTING)
-    add_executable(text_command_tests
-        tests/text_command_tests.cpp
+    add_executable(lua_engine_tests
+        tests/lua_engine_tests.cpp
+    )
+    add_executable(actual_config_tests
+        tests/actual_config_tests.cpp
     )
 
-    target_link_libraries(text_command_tests PRIVATE
+    target_link_libraries(lua_engine_tests PRIVATE
+        pilotmonitoring_core
+    )
+    target_link_libraries(actual_config_tests PRIVATE
         pilotmonitoring_core
     )
 
-    add_test(NAME text_command_tests COMMAND text_command_tests)
+    add_test(NAME lua_engine_tests COMMAND lua_engine_tests)
+    add_test(NAME actual_config_tests COMMAND actual_config_tests)
+    set_tests_properties(lua_engine_tests actual_config_tests PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
 endif()
