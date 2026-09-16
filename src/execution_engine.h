@@ -13,8 +13,12 @@
 
 struct lua_State;
 
+enum class DatarefType { Integer, Float };
+
 struct DatarefHost {
     virtual ~DatarefHost() = default;
+    virtual bool validate_dataref(std::string_view name, DatarefType expected_type,
+                                  bool write, std::string& error) = 0;
     virtual std::optional<int> get_integer(std::string_view name, std::string& error) = 0;
     virtual std::optional<float> get_float(std::string_view name, std::string& error) = 0;
     virtual std::optional<bool> get_boolean(std::string_view name, std::string& error) = 0;

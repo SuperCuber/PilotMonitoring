@@ -106,6 +106,50 @@ register_handler {
         !expect_equal(negative_sound->filename, std::string{"negative_beep"},
                       "unrecognized command sound filename")) return EXIT_FAILURE;
 
+    const std::string type_validation_lua = R"lua(
+register_handler {
+    id = "read wrong type",
+    phrases = { { "read wrong type" } },
+    handler = function() get_dataref_float("integer_ref") end,
+}
+register_handler {
+    id = "write wrong type",
+    phrases = { { "write wrong type" } },
+    handler = function() set_dataref_float("integer_ref", 1) end,
+}
+register_handler {
+    id = "write read only",
+    phrases = { { "write read only" } },
+    handler = function() set_dataref_integer("read_only_ref", 1) end,
+}
+register_handler {
+    id = "write valid type",
+    phrases = { { "write valid type" } },
+    handler = function() set_dataref_float("float_ref", 1) end,
+}
+)lua";
+    if (!expect_true(engine.load_from_lua_text(type_validation_lua, error),
+                     "type validation Lua failed: " + error)) return EXIT_FAILURE;
+    host.types["integer_ref"] = DatarefType::Integer;
+    host.types["float_ref"] = DatarefType::Float;
+    host.types["read_only_ref"] = DatarefType::Integer;
+    host.read_only.insert("read_only_ref");
+
+    actions = engine.handle_event(Event::transcript_event("read wrong type"), error);
+    if (!expect_true(actions.empty(), "wrong-type read emitted actions") ||
+        !expect_true(error.find("dataref type mismatch for integer_ref: expected float, found integer") != std::string::npos,
+                     "wrong-type read error: " + error)) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::transcript_event("write wrong type"), error);
+    if (!expect_true(actions.empty(), "wrong-type write emitted actions") ||
+        !expect_true(error.find("dataref type mismatch for integer_ref: expected float, found integer") != std::string::npos,
+                     "wrong-type write error: " + error)) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::transcript_event("write read only"), error);
+    if (!expect_true(actions.empty(), "read-only write emitted actions") ||
+        !expect_true(error.find("dataref is read-only: read_only_ref") != std::string::npos,
+                     "read-only write error: " + error)) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::transcript_event("write valid type"), error);
+    if (!expect_true(error.empty() && actions.size() == 1, "valid typed write failed")) return EXIT_FAILURE;
+
     const std::string invalid_sound_lua = R"lua(
 register_handler {
     id = "invalid_sound",

@@ -8,7 +8,6 @@ register_handler {
     },
     handler = function(slots)
         set_dataref_float("sim/cockpit/autopilot/heading_mag", slots.heading)
-        say("heading " .. slots.heading)
     end,
 }
 

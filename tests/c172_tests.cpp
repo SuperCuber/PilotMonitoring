@@ -47,7 +47,7 @@ bool lineup_checklist_test() {
         !expect_equal(actions.size(), std::size_t{1}, "lineup start action count")) return false;
     const auto* start_message = std::get_if<SpeakAction>(&actions[0]);
     if (!expect_true(start_message != nullptr, "lineup start action type") ||
-        !expect_equal(start_message->message, std::string{"line up checklist. runway"}, "lineup start message")) return false;
+        !expect_equal(start_message->message, std::string{"line up checklist, runway"}, "lineup start message")) return false;
 
     actions = engine.handle_event(Event::transcript_event("runway 27 identified"), error);
     if (!expect_true(error.empty(), "runway response failed: " + error) ||

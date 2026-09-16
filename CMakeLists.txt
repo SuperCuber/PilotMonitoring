@@ -153,9 +153,10 @@ if (BUILD_TESTING)
     add_test(NAME aircraft.B738.radio COMMAND b738_tests radio)
     add_test(NAME aircraft.B738.flap COMMAND b738_tests flap)
     add_test(NAME aircraft.B738.references COMMAND b738_tests references)
+    add_test(NAME aircraft.B738.automation COMMAND b738_tests automation)
     set_tests_properties(lua_engine_tests
         aircraft.C172.tune_radio aircraft.C172.lineup_checklist
-        aircraft.B738.radio aircraft.B738.flap aircraft.B738.references PROPERTIES
+        aircraft.B738.radio aircraft.B738.flap aircraft.B738.references aircraft.B738.automation PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     )
 endif()

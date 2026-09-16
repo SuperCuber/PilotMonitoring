@@ -237,6 +237,30 @@ void log_grammar(std::string_view grammar_text) {
 
 class XPlaneDatarefHost final : public DatarefHost {
 public:
+    bool validate_dataref(std::string_view name, DatarefType expected_type,
+                          bool write, std::string& error) override {
+        const XPLMDataRef ref = XPLMFindDataRef(std::string(name).c_str());
+        if (!ref) {
+            error = "dataref unavailable: " + std::string(name);
+            return false;
+        }
+        const XPLMDataTypeID types = XPLMGetDataRefTypes(ref);
+        const XPLMDataTypeID expected = expected_type == DatarefType::Integer ? xplmType_Int : xplmType_Float;
+        if ((types & expected) == 0) {
+            const char* expected_name = expected_type == DatarefType::Integer ? "integer" : "float";
+            const char* actual_name = (types & xplmType_Int) != 0 ? "integer"
+                : (types & xplmType_Float) != 0 ? "float" : "unsupported";
+            error = "dataref type mismatch for " + std::string(name) + ": expected " +
+                    expected_name + ", found " + actual_name;
+            return false;
+        }
+        if (write && XPLMCanWriteDataRef(ref) == 0) {
+            error = "dataref is read-only: " + std::string(name);
+            return false;
+        }
+        return true;
+    }
+
     std::optional<int> get_integer(std::string_view name, std::string& error) override {
         const XPLMDataRef ref = XPLMFindDataRef(std::string(name).c_str());
         if (!ref) { error = "dataref unavailable: " + std::string(name); return std::nullopt; }

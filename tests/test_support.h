@@ -4,17 +4,43 @@
 #include <map>
 #include <optional>
 #include <sstream>
+#include <set>
 #include <string>
 
 #include "execution_engine.h"
 
 struct FakeHost final : DatarefHost {
+    std::map<std::string, int> integers;
     std::map<std::string, float> floats;
     std::map<std::string, bool> booleans;
+    std::map<std::string, DatarefType> types;
+    std::set<std::string> read_only;
 
-    std::optional<int> get_integer(std::string_view, std::string& error) override {
-        error = "not an integer";
-        return std::nullopt;
+    bool validate_dataref(std::string_view name, DatarefType expected_type,
+                          bool write, std::string& error) override {
+        const std::string dataref{name};
+        const auto found = types.find(dataref);
+        const DatarefType actual_type = found == types.end() ? expected_type : found->second;
+        if (actual_type != expected_type) {
+            const char* expected = expected_type == DatarefType::Integer ? "integer" : "float";
+            const char* actual = actual_type == DatarefType::Integer ? "integer" : "float";
+            error = "dataref type mismatch for " + dataref + ": expected " + expected + ", found " + actual;
+            return false;
+        }
+        if (write && read_only.count(dataref) != 0) {
+            error = "dataref is read-only: " + dataref;
+            return false;
+        }
+        return true;
+    }
+
+    std::optional<int> get_integer(std::string_view name, std::string& error) override {
+        const auto value = integers.find(std::string(name));
+        if (value == integers.end()) {
+            error = "missing";
+            return std::nullopt;
+        }
+        return value->second;
     }
 
     std::optional<float> get_float(std::string_view name, std::string& error) override {

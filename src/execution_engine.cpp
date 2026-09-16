@@ -282,10 +282,25 @@ int play_sound(lua_State* lua) {
     return 0;
 }
 
+bool validate_dataref(lua_State* lua, ExecutionEngine::Impl* context_value, std::string_view name,
+                      DatarefType expected_type, bool write) {
+    if (!context_value->owner->dataref_host()) {
+        luaL_error(lua, "dataref host unavailable while accessing %s", std::string(name).c_str());
+        return false;
+    }
+    std::string error;
+    if (!context_value->owner->dataref_host()->validate_dataref(name, expected_type, write, error)) {
+        luaL_error(lua, "%s", error.c_str());
+        return false;
+    }
+    return true;
+}
+
 int set_integer(lua_State* lua) {
     auto* context_value = context(lua);
     const char* dataref = luaL_checkstring(lua, 1);
     const auto value = static_cast<int>(luaL_checkinteger(lua, 2));
+    if (!validate_dataref(lua, context_value, dataref, DatarefType::Integer, true)) return 0;
     log_lua_call(context_value, "set_dataref_integer(\"" + escape(dataref) + "\", " + std::to_string(value) + ")");
     context_value->actions.emplace_back(SetIntegerDatarefAction{dataref, value});
     return 0;
@@ -295,6 +310,7 @@ int set_float(lua_State* lua) {
     auto* context_value = context(lua);
     const char* dataref = luaL_checkstring(lua, 1);
     const auto value = static_cast<float>(luaL_checknumber(lua, 2));
+    if (!validate_dataref(lua, context_value, dataref, DatarefType::Float, true)) return 0;
     std::ostringstream formatted;
     formatted << value;
     log_lua_call(context_value, "set_dataref_float(\"" + escape(dataref) + "\", " + formatted.str() + ")");
@@ -306,6 +322,7 @@ int set_boolean(lua_State* lua) {
     auto* context_value = context(lua);
     const char* dataref = luaL_checkstring(lua, 1);
     const bool value = lua_toboolean(lua, 2) != 0;
+    if (!validate_dataref(lua, context_value, dataref, DatarefType::Integer, true)) return 0;
     log_lua_call(context_value, "set_dataref_boolean(\"" + escape(dataref) + "\", " + (value ? "true" : "false") + ")");
     context_value->actions.emplace_back(
         SetBooleanDatarefAction{dataref, value});
@@ -334,6 +351,9 @@ int get_dataref(lua_State* lua, int kind) {
         lua_pushliteral(lua, "no dataref host");
         return 2;
     }
+
+    const DatarefType expected_type = kind == 1 ? DatarefType::Float : DatarefType::Integer;
+    if (!validate_dataref(lua, context_value, name, expected_type, false)) return 0;
 
     if (kind == 0) {
         auto value = context_value->owner->dataref_host()->get_integer(name, error);
