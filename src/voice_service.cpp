@@ -1,6 +1,7 @@
 #include "voice_service.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -98,8 +99,13 @@ void VoiceService::start() {
 }
 
 void VoiceService::set_listening(bool active) {
-    listening_.store(active);
+    const bool was_listening = listening_.exchange(active);
+    if (active && !was_listening) {
+        std::lock_guard lock(samples_mutex_);
+        samples_.clear();
+    }
     wake_cv_.notify_all();
+    samples_cv_.notify_all();
 }
 
 void VoiceService::stop() {
@@ -108,6 +114,10 @@ void VoiceService::stop() {
     }
     listening_.store(false);
     wake_cv_.notify_all();
+    samples_cv_.notify_all();
+    if (capture_thread_.joinable()) {
+        capture_thread_.join();
+    }
     if (worker_.joinable()) {
         worker_.join();
     }
@@ -153,12 +163,42 @@ void VoiceService::worker_main() {
             break;
         }
 
-        auto samples = capture_phrase();
-        if (!running_.load() || samples.empty()) {
-            continue;
+        if (capture_thread_.joinable()) {
+            capture_thread_.join();
         }
-        if (auto transcript = transcribe(samples)) {
-            push_result(true, std::move(*transcript));
+        capture_thread_ = std::thread(&VoiceService::capture_main, this);
+
+        // Whisper works on complete buffers. Re-running it on snapshots lets
+        // recognition overlap capture, while the result remains private until
+        // the PTT command ends.
+        std::size_t last_sample_count = 0;
+        while (running_.load() && listening_.load()) {
+            std::unique_lock samples_lock(samples_mutex_);
+            samples_cv_.wait_for(samples_lock, std::chrono::milliseconds(250));
+            const auto sample_count = samples_.size();
+            samples_lock.unlock();
+
+            if (sample_count < 8000 || sample_count == last_sample_count) {
+                continue;
+            }
+            auto samples = snapshot_samples();
+            if (!samples.empty()) {
+                transcribe(samples, false);
+            }
+            last_sample_count = sample_count;
+        }
+
+        if (capture_thread_.joinable()) {
+            capture_thread_.join();
+        }
+        if (!running_.load()) {
+            break;
+        }
+        const auto samples = snapshot_samples();
+        if (!samples.empty()) {
+            if (auto transcript = transcribe(samples, true)) {
+                push_result(true, std::move(*transcript));
+            }
         }
     }
 
@@ -167,7 +207,18 @@ void VoiceService::worker_main() {
     CoUninitialize();
 }
 
-std::vector<float> VoiceService::capture_phrase() {
+void VoiceService::capture_main() {
+    const HRESULT com_result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(com_result)) {
+        push_result(false, "could not initialize the Windows audio subsystem");
+    } else {
+        capture_phrase();
+        CoUninitialize();
+    }
+    samples_cv_.notify_all();
+}
+
+void VoiceService::capture_phrase() {
     ComPtr<IMMDeviceEnumerator> enumerator;
     ComPtr<IMMDevice> device;
     ComPtr<IAudioClient> audio_client;
@@ -179,13 +230,13 @@ std::vector<float> VoiceService::capture_phrase() {
         FAILED(device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                                 reinterpret_cast<void**>(audio_client.GetAddressOf())))) {
         push_result(false, "could not open the default microphone");
-        return {};
+        return;
     }
 
     WAVEFORMATEX* format = nullptr;
     if (FAILED(audio_client->GetMixFormat(&format))) {
         push_result(false, "could not read the microphone format");
-        return {};
+        return;
     }
 
     const unsigned int sample_rate = format->nSamplesPerSec;
@@ -197,7 +248,7 @@ std::vector<float> VoiceService::capture_phrase() {
     if ((!floating_point && !pcm) || bytes_per_sample == 0 || channels == 0) {
         CoTaskMemFree(format);
         push_result(false, "the default microphone uses an unsupported audio format");
-        return {};
+        return;
     }
 
     result = audio_client->Initialize(
@@ -206,7 +257,7 @@ std::vector<float> VoiceService::capture_phrase() {
     if (FAILED(result) || FAILED(audio_client->GetService(IID_PPV_ARGS(&capture_client))) ||
         FAILED(audio_client->Start())) {
         push_result(false, "could not start microphone capture");
-        return {};
+        return;
     }
 
     std::vector<float> mono_samples;
@@ -233,15 +284,26 @@ std::vector<float> VoiceService::capture_phrase() {
                 }
             }
             capture_client->ReleaseBuffer(frames);
+
+            {
+                std::lock_guard lock(samples_mutex_);
+                samples_ = std::move(resample_to_whisper_rate(mono_samples, sample_rate));
+            }
+            samples_cv_.notify_all();
         }
         Sleep(10);
     }
 
     audio_client->Stop();
-    return resample_to_whisper_rate(mono_samples, sample_rate);
 }
 
-std::optional<std::string> VoiceService::transcribe(const std::vector<float>& samples) {
+std::vector<float> VoiceService::snapshot_samples() {
+    std::lock_guard lock(samples_mutex_);
+    return samples_;
+}
+
+std::optional<std::string> VoiceService::transcribe(
+    const std::vector<float>& samples, bool report_errors) {
     const bool use_grammar =
          !grammar_.rules.empty() && grammar_.symbol_ids.find("root") != grammar_.symbol_ids.end();
     auto params = whisper_full_default_params(
@@ -265,7 +327,7 @@ std::optional<std::string> VoiceService::transcribe(const std::vector<float>& sa
     }
 
     if (whisper_full(context_, params, samples.data(), static_cast<int>(samples.size())) != 0) {
-        push_result(false, "Whisper could not transcribe the captured audio");
+        if (report_errors) push_result(false, "Whisper could not transcribe the captured audio");
         return std::nullopt;
     }
 
@@ -275,9 +337,9 @@ std::optional<std::string> VoiceService::transcribe(const std::vector<float>& sa
         transcript += whisper_full_get_segment_text(context_, segment);
     }
     if (transcript.empty()) {
-        push_result(false, "no speech was recognized");
+        if (report_errors) push_result(false, "no speech was recognized");
         return std::nullopt;
     }
-    transcript.erase(0, 1); // Leading space hardcoded into grammar
+    if (transcript.front() == ' ') transcript.erase(0, 1); // Grammar commonly emits a leading space.
     return transcript;
 }

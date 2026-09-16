@@ -19,26 +19,19 @@ int main() {
                      "actual contact dataref: invalid value [" + radio->dataref + "]")) return EXIT_FAILURE;
     if (!expect_equal(radio->value, 123450, "actual contact frequency")) return EXIT_FAILURE;
 
-    actions = engine.handle_event(Event::transcript_event("contact 21 50"), error);
-    if (!expect_true(error.empty(), "actual shorthand contact failed: " + error) ||
-        !expect_equal(actions.size(), std::size_t{1}, "actual shorthand contact action count")) return EXIT_FAILURE;
-    const auto* shorthand_radio = std::get_if<SetIntegerDatarefAction>(&actions[0]);
-    if (!expect_true(shorthand_radio != nullptr, "actual shorthand contact action type was not SetIntegerDataref")) return EXIT_FAILURE;
-    if (!expect_equal(shorthand_radio->value, 121500, "actual shorthand contact frequency")) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::transcript_event("contact 21.50"), error);
+    if (!expect_true(error.empty(), "actual shortened float contact failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "actual shortened float contact action count")) return EXIT_FAILURE;
+    const auto* shortened_radio = std::get_if<SetIntegerDatarefAction>(&actions[0]);
+    if (!expect_true(shortened_radio != nullptr, "actual shortened float contact action type was not SetIntegerDataref")) return EXIT_FAILURE;
+    if (!expect_equal(shortened_radio->value, 121500, "actual shortened float contact frequency")) return EXIT_FAILURE;
 
-    actions = engine.handle_event(Event::transcript_event("contact 21 5"), error);
-    if (!expect_true(error.empty(), "actual one-digit shorthand contact failed: " + error) ||
-        !expect_equal(actions.size(), std::size_t{1}, "actual one-digit shorthand action count")) return EXIT_FAILURE;
-    const auto* one_digit_radio = std::get_if<SetIntegerDatarefAction>(&actions[0]);
-    if (!expect_true(one_digit_radio != nullptr, "actual one-digit shorthand action type was not SetIntegerDataref")) return EXIT_FAILURE;
-    if (!expect_equal(one_digit_radio->value, 121500, "actual one-digit shorthand contact frequency")) return EXIT_FAILURE;
-
-    actions = engine.handle_event(Event::transcript_event("contact 121 50"), error);
-    if (!expect_true(error.empty(), "actual paused contact failed: " + error) ||
-        !expect_equal(actions.size(), std::size_t{1}, "actual paused contact action count")) return EXIT_FAILURE;
-    const auto* paused_radio = std::get_if<SetIntegerDatarefAction>(&actions[0]);
-    if (!expect_true(paused_radio != nullptr, "actual paused contact action type was not SetIntegerDataref")) return EXIT_FAILURE;
-    if (!expect_equal(paused_radio->value, 121500, "actual paused contact frequency")) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::transcript_event("contact 121.50"), error);
+    if (!expect_true(error.empty(), "actual full float contact failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "actual full float contact action count")) return EXIT_FAILURE;
+    const auto* full_radio = std::get_if<SetIntegerDatarefAction>(&actions[0]);
+    if (!expect_true(full_radio != nullptr, "actual full float contact action type was not SetIntegerDataref")) return EXIT_FAILURE;
+    if (!expect_equal(full_radio->value, 121500, "actual full float contact frequency")) return EXIT_FAILURE;
 
     actions = engine.handle_event(Event::transcript_event("test annunciators"), error);
     if (!expect_true(error.empty(), "actual annunciator failed: " + error) ||

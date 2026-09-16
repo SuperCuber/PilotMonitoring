@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -43,7 +44,9 @@ struct Event {
 class ExecutionEngine {
 public:
     struct Impl;
-    explicit ExecutionEngine(DatarefHost* dataref_host = nullptr);
+    using LogCallback = std::function<void(std::string_view)>;
+
+    explicit ExecutionEngine(DatarefHost* dataref_host = nullptr, LogCallback logger = {});
     ~ExecutionEngine();
 
     ExecutionEngine(const ExecutionEngine&) = delete;

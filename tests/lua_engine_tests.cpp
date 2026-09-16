@@ -44,6 +44,17 @@ register_handler {
     if (!expect_true(seen != nullptr, "read action type was not SetFloatDataref")) return EXIT_FAILURE;
     if (!expect_equal(seen->dataref, std::string{"seen"}, "read destination") ||
         !expect_equal(seen->value, 1200.0F, "read value")) return EXIT_FAILURE;
+
+    actions = engine.handle_event(Event::transcript_event("contact 118.7, read altitude"), error);
+    if (!expect_true(error.empty(), "multiple commands failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{2}, "multiple command action count")) return EXIT_FAILURE;
+    const auto* chained_radio = std::get_if<SetIntegerDatarefAction>(&actions[0]);
+    const auto* chained_seen = std::get_if<SetFloatDatarefAction>(&actions[1]);
+    if (!expect_true(chained_radio != nullptr, "first chained action type") ||
+        !expect_equal(chained_radio->value, 118700, "first chained action value") ||
+        !expect_true(chained_seen != nullptr, "second chained action type") ||
+        !expect_equal(chained_seen->value, 1200.0F, "second chained action value")) return EXIT_FAILURE;
+
     if (!expect_equal(engine.handle_event(Event::tick_event(0.1F), error).size(), std::size_t{0}, "tick action count")) return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }

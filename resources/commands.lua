@@ -30,24 +30,12 @@ register_handler {
 register_handler {
     id = "tune_radio",
     phrases = {
-        { "contact", slot("frequency_whole", "integer"), slot("frequency_fraction", "integer") },
         { "contact", slot("frequency", "float") },
     },
     handler = function(slots)
-        local frequency
-        if slots.frequency ~= nil then
-            frequency = slots.frequency
-        else
-            local whole = slots.frequency_whole
-            if whole < 100 then
-                whole = whole + 100
-            end
-            local fraction = slots.frequency_fraction
-            if fraction < 10 then
-                frequency = whole + fraction / 10
-            else
-                frequency = whole + fraction / 100
-            end
+        local frequency = slots.frequency
+        if frequency < 100 then
+            frequency = frequency + 100
         end
         set_dataref_integer("sim/cockpit2/radios/actuators/com1_standby_frequency_hz_833", math.floor(frequency * 1000))
     end,

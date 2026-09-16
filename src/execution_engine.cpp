@@ -16,6 +16,7 @@ struct ExecutionEngine::Impl {
     std::vector<Handler> handlers;
     std::vector<Action> actions;
     ExecutionEngine* owner = nullptr;
+    ExecutionEngine::LogCallback logger;
 };
 
 namespace {
@@ -57,7 +58,7 @@ std::string escape(std::string_view text) {
 
 std::string grammar_for(const std::vector<Handler>& handlers) {
     std::ostringstream out;
-    out << "root ::= init command\ninit ::= \" \"\n\ncommand ::= (\n";
+    out << "root ::= init command (\",\" init command)*\ninit ::= \" \"\n\ncommand ::= (\n";
     bool first = true;
     for (const auto& h : handlers) for (const auto& phrase : h.phrases) {
         out << (first ? "    " : "  | "); first = false;
@@ -121,6 +122,10 @@ ExecutionEngine::Impl* context(lua_State* lua) {
     lua_pop(lua, 1); return value;
 }
 
+void log_lua_call(ExecutionEngine::Impl* c, std::string message) {
+    if (c->logger) c->logger(message);
+}
+
 int slot_function(lua_State* lua) {
     luaL_checkstring(lua, 1); luaL_checkstring(lua, 2);
     lua_createtable(lua, 0, 3);
@@ -130,13 +135,42 @@ int slot_function(lua_State* lua) {
     return 1;
 }
 
-int trigger_command(lua_State* lua) { auto* c = context(lua); c->actions.emplace_back(TriggerCommandAction{luaL_checkstring(lua, 1)}); return 0; }
-int set_integer(lua_State* lua) { auto* c = context(lua); c->actions.emplace_back(SetIntegerDatarefAction{luaL_checkstring(lua, 1), static_cast<int>(luaL_checkinteger(lua, 2))}); return 0; }
-int set_float(lua_State* lua) { auto* c = context(lua); c->actions.emplace_back(SetFloatDatarefAction{luaL_checkstring(lua, 1), static_cast<float>(luaL_checknumber(lua, 2))}); return 0; }
-int set_boolean(lua_State* lua) { auto* c = context(lua); c->actions.emplace_back(SetBooleanDatarefAction{luaL_checkstring(lua, 1), lua_toboolean(lua, 2) != 0}); return 0; }
+int trigger_command(lua_State* lua) {
+    auto* c = context(lua);
+    const char* command = luaL_checkstring(lua, 1);
+    log_lua_call(c, "trigger_command(\"" + std::string(command) + "\")");
+    c->actions.emplace_back(TriggerCommandAction{command});
+    return 0;
+}
+int set_integer(lua_State* lua) {
+    auto* c = context(lua);
+    const char* dataref = luaL_checkstring(lua, 1);
+    const auto value = static_cast<int>(luaL_checkinteger(lua, 2));
+    log_lua_call(c, "set_dataref_integer(\"" + std::string(dataref) + "\", " + std::to_string(value) + ")");
+    c->actions.emplace_back(SetIntegerDatarefAction{dataref, value});
+    return 0;
+}
+int set_float(lua_State* lua) {
+    auto* c = context(lua);
+    const char* dataref = luaL_checkstring(lua, 1);
+    const auto value = static_cast<float>(luaL_checknumber(lua, 2));
+    log_lua_call(c, "set_dataref_float(\"" + std::string(dataref) + "\", " + std::to_string(value) + ")");
+    c->actions.emplace_back(SetFloatDatarefAction{dataref, value});
+    return 0;
+}
+int set_boolean(lua_State* lua) {
+    auto* c = context(lua);
+    const char* dataref = luaL_checkstring(lua, 1);
+    const bool value = lua_toboolean(lua, 2) != 0;
+    log_lua_call(c, "set_dataref_boolean(\"" + std::string(dataref) + "\", " + (value ? "true" : "false") + ")");
+    c->actions.emplace_back(SetBooleanDatarefAction{dataref, value});
+    return 0;
+}
 
 int get_dataref(lua_State* lua, int kind) {
     auto* c = context(lua); const char* name = luaL_checkstring(lua, 1); std::string error;
+    const char* function_name = kind == 0 ? "get_dataref_integer" : kind == 1 ? "get_dataref_float" : "get_dataref_boolean";
+    log_lua_call(c, std::string(function_name) + "(\"" + name + "\")");
     if (!c->owner->dataref_host()) { lua_pushnil(lua); lua_pushliteral(lua, "no dataref host"); return 2; }
     if (kind == 0) { auto v = c->owner->dataref_host()->get_integer(name, error); if (v) lua_pushinteger(lua, *v); else lua_pushnil(lua); }
     else if (kind == 1) { auto v = c->owner->dataref_host()->get_float(name, error); if (v) lua_pushnumber(lua, *v); else lua_pushnil(lua); }
@@ -193,7 +227,9 @@ void install_api(lua_State* lua) {
 Event Event::transcript_event(std::string text) { return {Type::Transcript, std::move(text), 0.0F}; }
 Event Event::tick_event(float delta) { return {Type::Tick, {}, delta}; }
 
-ExecutionEngine::ExecutionEngine(DatarefHost* host) : impl_(std::make_unique<Impl>()), dataref_host_(host) {
+ExecutionEngine::ExecutionEngine(DatarefHost* host, LogCallback logger) : impl_(std::make_unique<Impl>()), dataref_host_(host) {
+    impl_->logger = std::move(logger);
+ 
     impl_->owner = this; impl_->lua = luaL_newstate(); install_api(impl_->lua); lua_pushlightuserdata(impl_->lua, impl_.get()); lua_setglobal(impl_->lua, "__pilotmonitoring_context");
 }
 ExecutionEngine::~ExecutionEngine() { if (impl_->lua) { for (auto& h : impl_->handlers) luaL_unref(impl_->lua, LUA_REGISTRYINDEX, h.function_ref); lua_close(impl_->lua); } }
@@ -212,14 +248,65 @@ std::vector<Action> ExecutionEngine::handle_event(const Event& event, std::strin
     impl_->actions.clear(); if (failed_) { error = "execution engine is failed"; return {}; }
     if (event.type == Event::Type::Tick) return {};
     const std::string input = lower(event.transcript);
-    for (auto& h : impl_->handlers) for (const auto& phrase : h.phrases) {
-        std::vector<std::string> values; if (!match_parts(phrase, 0, input, 0, values)) continue;
-        lua_State* thread = lua_newthread(impl_->lua); const int thread_ref = luaL_ref(impl_->lua, LUA_REGISTRYINDEX);
-        lua_rawgeti(thread, LUA_REGISTRYINDEX, h.function_ref); lua_createtable(thread, 0, static_cast<int>(values.size()));
-        std::size_t value_index = 0; for (const auto& part : phrase) if (part.type != Part::Type::Literal) { const std::string& value = values[value_index++]; if (part.type == Part::Type::Integer) lua_pushinteger(thread, std::stoi(value)); else lua_pushnumber(thread, std::stod(value)); lua_setfield(thread, -2, part.name.c_str()); }
-        int results = 0; const int status = lua_resume(thread, impl_->lua, 1, &results);
-        if (status != LUA_OK) { error = lua_tostring(thread, -1); luaL_unref(impl_->lua, LUA_REGISTRYINDEX, thread_ref); failed_ = true; return {}; }
-        luaL_unref(impl_->lua, LUA_REGISTRYINDEX, thread_ref); return impl_->actions;
+    std::size_t command_start = 0;
+    while (command_start <= input.size()) {
+        const std::size_t comma = input.find(',', command_start);
+        const std::size_t command_length = comma == std::string::npos
+            ? input.size() - command_start
+            : comma - command_start;
+        std::string_view command(input.data() + command_start, command_length);
+        while (!command.empty() && command.front() == ' ') command.remove_prefix(1);
+        while (!command.empty() && command.back() == ' ') command.remove_suffix(1);
+        bool matched = false;
+
+        for (auto& h : impl_->handlers) {
+            for (const auto& phrase : h.phrases) {
+                std::vector<std::string> values;
+                if (!match_parts(phrase, 0, command, 0, values)) continue;
+                matched = true;
+                if (impl_->logger) {
+                    std::ostringstream log;
+                    log << "matched command id \"" << h.id
+                        << "\"; starting handler with slots = {";
+                    std::size_t slot_index = 0;
+                    bool first_slot = true;
+                    for (const auto& part : phrase) {
+                        if (part.type == Part::Type::Literal) continue;
+                        if (!first_slot) log << ", ";
+                        first_slot = false;
+                        log << part.name << " = " << values[slot_index++];
+                    }
+                    log << "}";
+                    impl_->logger(log.str());
+                }
+                lua_State* thread = lua_newthread(impl_->lua);
+                const int thread_ref = luaL_ref(impl_->lua, LUA_REGISTRYINDEX);
+                lua_rawgeti(thread, LUA_REGISTRYINDEX, h.function_ref);
+                lua_createtable(thread, 0, static_cast<int>(values.size()));
+                std::size_t value_index = 0;
+                for (const auto& part : phrase) {
+                    if (part.type == Part::Type::Literal) continue;
+                    const std::string& value = values[value_index++];
+                    if (part.type == Part::Type::Integer) lua_pushinteger(thread, std::stoi(value));
+                    else lua_pushnumber(thread, std::stod(value));
+                    lua_setfield(thread, -2, part.name.c_str());
+                }
+                int results = 0;
+                const int status = lua_resume(thread, impl_->lua, 1, &results);
+                if (status != LUA_OK) {
+                    error = lua_tostring(thread, -1);
+                    luaL_unref(impl_->lua, LUA_REGISTRYINDEX, thread_ref);
+                    failed_ = true;
+                    return {};
+                }
+                luaL_unref(impl_->lua, LUA_REGISTRYINDEX, thread_ref);
+                break;
+            }
+            if (matched) break;
+        }
+
+        if (comma == std::string::npos) break;
+        command_start = comma + 1;
     }
-    return {};
+    return impl_->actions;
 }

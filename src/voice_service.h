@@ -32,8 +32,10 @@ public:
 
 private:
     void worker_main();
-    std::vector<float> capture_phrase();
-    std::optional<std::string> transcribe(const std::vector<float>& samples);
+    void capture_main();
+    void capture_phrase();
+    std::vector<float> snapshot_samples();
+    std::optional<std::string> transcribe(const std::vector<float>& samples, bool report_errors);
     void push_result(bool recognized, std::string text);
 
     std::string model_path_;
@@ -42,8 +44,12 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> listening_{false};
     std::thread worker_;
+    std::thread capture_thread_;
     std::mutex wake_mutex_;
     std::condition_variable wake_cv_;
+    std::mutex samples_mutex_;
+    std::condition_variable samples_cv_;
+    std::vector<float> samples_;
     std::mutex results_mutex_;
     std::vector<Result> results_;
 };

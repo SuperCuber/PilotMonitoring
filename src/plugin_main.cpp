@@ -49,7 +49,7 @@ int handle_ptt_command(XPLMCommandRef, XPLMCommandPhase phase, void*) {
         log_message("Pilot Monitoring: PTT pressed; listening.\n");
         g_voice_service->set_listening(true);
     } else if (phase == xplm_CommandEnd) {
-        log_message("Pilot Monitoring: PTT released; transcribing.\n");
+        log_message("Pilot Monitoring: PTT released; finalizing command.\n");
         g_voice_service->set_listening(false);
     }
     return 1;
@@ -114,9 +114,6 @@ void execute_action(const Action& action) {
         } else {
         const std::string& dataref_name = value.dataref;
         const XPLMDataRef dataref = XPLMFindDataRef(dataref_name.c_str());
-        log_message("Pilot Monitoring: setting dataref ");
-        log_message(dataref_name.c_str());
-        log_message("\n");
         if (dataref == nullptr) {
             log_message("Pilot Monitoring: dataref target is unavailable.\n");
             return;
@@ -215,7 +212,9 @@ PLUGIN_API void XPluginStop() {
 
 PLUGIN_API int XPluginEnable() {
     std::string error_message;
-    auto engine = std::make_unique<ExecutionEngine>(&g_dataref_host);
+    auto engine = std::make_unique<ExecutionEngine>(&g_dataref_host, [](std::string_view message) {
+        log_line("Pilot Monitoring: " + std::string(message));
+    });
     if (engine->load_from_file(commands_path(), error_message)) {
         g_execution_engine = std::move(engine);
         log_grammar(g_execution_engine->grammar_text());
