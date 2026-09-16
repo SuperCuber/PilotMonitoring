@@ -10,6 +10,7 @@
 
 struct FakeHost final : DatarefHost {
     std::map<std::string, float> floats;
+    std::map<std::string, bool> booleans;
 
     std::optional<int> get_integer(std::string_view, std::string& error) override {
         error = "not an integer";
@@ -25,9 +26,13 @@ struct FakeHost final : DatarefHost {
         return value->second;
     }
 
-    std::optional<bool> get_boolean(std::string_view, std::string& error) override {
-        error = "not a boolean";
-        return std::nullopt;
+    std::optional<bool> get_boolean(std::string_view name, std::string& error) override {
+        const auto value = booleans.find(std::string(name));
+        if (value == booleans.end()) {
+            error = "missing";
+            return std::nullopt;
+        }
+        return value->second;
     }
 };
 

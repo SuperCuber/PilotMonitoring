@@ -71,5 +71,115 @@ register_handler {
     const auto* speech = std::get_if<SpeakAction>(&actions[0]);
     if (!expect_true(speech != nullptr, "say action type") ||
         !expect_equal(speech->message, std::string{"checklist complete"}, "say action message")) return EXIT_FAILURE;
+
+    const std::string coroutine_lua = R"lua(
+register_handler {
+    id = "timed",
+    phrases = { { "timed" } },
+    handler = function()
+        say("started")
+        wait_ms(150)
+        say("finished")
+    end,
+}
+register_handler {
+    id = "condition",
+    phrases = { { "condition" } },
+    handler = function()
+        wait_until(function()
+            return get_dataref_boolean("ready")
+        end)
+        say("condition met")
+    end,
+}
+register_handler {
+    id = "phrase",
+    phrases = { { "phrase" } },
+    handler = function()
+        say("speak now")
+        local slots = wait_for_phrase({ { "set", slot("value", "integer") } })
+        say("value " .. slots.value)
+    end,
+}
+register_handler {
+    id = "caught",
+    phrases = { { "caught" } },
+    handler = function()
+        local ok = pcall(function()
+            wait_for_phrase({ { "yes" } })
+        end)
+        if not ok then say("cancelled") end
+    end,
+}
+register_handler {
+    id = "unhandled",
+    phrases = { { "unhandled" } },
+    handler = function()
+        wait_for_phrase({ { "yes" } })
+    end,
+}
+register_handler {
+    id = "after_error",
+    phrases = { { "after error" } },
+    handler = function()
+        say("usable")
+    end,
+}
+)lua";
+
+    if (!expect_true(engine.load_from_lua_text(coroutine_lua, error),
+                     "coroutine Lua failed: " + error)) return EXIT_FAILURE;
+
+    actions = engine.handle_event(Event::transcript_event("timed"), error);
+    if (!expect_true(error.empty(), "timed start failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "timed start action count")) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::transcript_event("condition"), error);
+    if (!expect_true(error.empty(), "transcript during wait failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{0}, "transcript during wait action count")) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::tick_event(0.1F), error);
+    if (!expect_true(error.empty(), "early timed tick failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{0}, "early timed tick action count")) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::tick_event(0.05F), error);
+    if (!expect_true(error.empty(), "timed completion failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "timed completion action count")) return EXIT_FAILURE;
+
+    host.booleans["ready"] = false;
+    actions = engine.handle_event(Event::transcript_event("condition"), error);
+    if (!expect_true(error.empty(), "condition start failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{0}, "condition start action count")) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::tick_event(0.1F), error);
+    if (!expect_true(error.empty(), "false condition tick failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{0}, "false condition action count")) return EXIT_FAILURE;
+    host.booleans["ready"] = true;
+    actions = engine.handle_event(Event::tick_event(0.1F), error);
+    if (!expect_true(error.empty(), "true condition tick failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "true condition action count")) return EXIT_FAILURE;
+
+    actions = engine.handle_event(Event::transcript_event("phrase"), error);
+    if (!expect_true(error.empty(), "phrase wait start failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "phrase wait start action count") ||
+        !expect_true(engine.grammar_text().find("integer_slot") != std::string::npos,
+                     "phrase grammar was not installed")) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::transcript_event("set 42"), error);
+    if (!expect_true(error.empty(), "phrase wait completion failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "phrase wait completion action count") ||
+        !expect_true(engine.grammar_text().find("phrase") != std::string::npos,
+                     "top-level grammar was not restored")) return EXIT_FAILURE;
+
+    actions = engine.handle_event(Event::transcript_event("caught"), error);
+    if (!expect_true(error.empty(), "caught wait start failed: " + error)) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::transcript_event("no"), error);
+    if (!expect_true(error.empty(), "caught wait should be recoverable: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "caught wait action count")) return EXIT_FAILURE;
+
+    actions = engine.handle_event(Event::transcript_event("unhandled"), error);
+    if (!expect_true(error.empty(), "unhandled wait start failed: " + error)) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::transcript_event("no"), error);
+    if (!expect_true(!error.empty(), "unhandled wait did not report an error") ||
+        !expect_true(engine.grammar_text().find("phrase") != std::string::npos,
+                     "grammar was not restored after error")) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::transcript_event("after error"), error);
+    if (!expect_true(error.empty(), "engine unusable after handler error: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "post-error action count")) return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }

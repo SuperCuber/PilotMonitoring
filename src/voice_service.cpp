@@ -108,6 +108,11 @@ void VoiceService::set_listening(bool active) {
     samples_cv_.notify_all();
 }
 
+void VoiceService::set_grammar(grammar_parser::parse_state grammar) {
+    std::lock_guard lock(grammar_mutex_);
+    grammar_ = std::move(grammar);
+}
+
 void VoiceService::stop() {
     if (!running_.exchange(false)) {
         return;
@@ -304,8 +309,13 @@ std::vector<float> VoiceService::snapshot_samples() {
 
 std::optional<std::string> VoiceService::transcribe(
     const std::vector<float>& samples, bool report_errors) {
+    grammar_parser::parse_state grammar;
+    {
+        std::lock_guard lock(grammar_mutex_);
+        grammar = grammar_;
+    }
     const bool use_grammar =
-         !grammar_.rules.empty() && grammar_.symbol_ids.find("root") != grammar_.symbol_ids.end();
+         !grammar.rules.empty() && grammar.symbol_ids.find("root") != grammar.symbol_ids.end();
     auto params = whisper_full_default_params(
         use_grammar ? WHISPER_SAMPLING_BEAM_SEARCH : WHISPER_SAMPLING_GREEDY);
     params.print_progress = false;
@@ -319,10 +329,10 @@ std::optional<std::string> VoiceService::transcribe(
 
     std::vector<const whisper_grammar_element*> grammar_rules;
     if (use_grammar) {
-        grammar_rules = grammar_.c_rules();
+        grammar_rules = grammar.c_rules();
         params.grammar_rules = grammar_rules.data();
         params.n_grammar_rules = grammar_rules.size();
-        params.i_start_rule = grammar_.symbol_ids.at("root");
+        params.i_start_rule = grammar.symbol_ids.at("root");
         params.grammar_penalty = 100.0F;
     }
 

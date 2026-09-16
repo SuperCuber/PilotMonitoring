@@ -8,24 +8,7 @@ register_handler {
     },
     handler = function(slots)
         set_dataref_float("sim/cockpit/autopilot/heading_mag", slots.heading)
-        print("heading " .. slots.heading)
         say("heading " .. slots.heading)
-    end,
-}
-
-register_handler {
-    id = "annunciator_test",
-    phrases = { { "test annunciators" } },
-    handler = function()
-        trigger_command("sim/annunciator/test_all_annunciators")
-    end,
-}
-
-register_handler {
-    id = "gear_up",
-    phrases = { { "gear up" } },
-    handler = function()
-        trigger_command("")
     end,
 }
 
@@ -40,5 +23,24 @@ register_handler {
             frequency = frequency + 100
         end
         set_dataref_integer("sim/cockpit2/radios/actuators/com1_standby_frequency_hz_833", math.floor(frequency * 1000))
+    end,
+}
+
+register_handler {
+    id = "lineup_checklist",
+    phrases = {
+        { "line up checklist" },
+    },
+    handler = function(_)
+        say("line up checklist. runway")
+        wait_for_phrase({ { "runway", slot("runway", "integer"), "identified" } })
+        say("landing lights")
+        wait_for_phrase({ { "landing lights on" } })
+        local landing_lights_on = get_dataref_boolean("sim/cockpit2/switches/landing_lights_on")
+        if not landing_lights_on then
+            say("negative")
+            return
+        end
+        say("line up checklist complete")
     end,
 }

@@ -62,8 +62,12 @@ public:
     [[nodiscard]] const grammar_parser::parse_state& grammar() const { return grammar_; }
     [[nodiscard]] bool failed() const { return failed_; }
     [[nodiscard]] DatarefHost* dataref_host() const { return dataref_host_; }
+    void set_active_grammar(std::string text, grammar_parser::parse_state grammar);
 
 private:
+    void clear_active();
+    bool resume_active(int arguments, std::string& error);
+
     std::unique_ptr<Impl> impl_;
     DatarefHost* dataref_host_ = nullptr;
     std::string grammar_text_;

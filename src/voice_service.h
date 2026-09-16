@@ -27,6 +27,7 @@ public:
 
     void start();
     void set_listening(bool active);
+    void set_grammar(grammar_parser::parse_state grammar);
     void stop();
     std::optional<Result> pop_result();
 
@@ -39,6 +40,7 @@ private:
     void push_result(bool recognized, std::string text);
 
     std::string model_path_;
+    mutable std::mutex grammar_mutex_;
     grammar_parser::parse_state grammar_;
     whisper_context* context_ = nullptr; // Created and used only by worker_.
     std::atomic<bool> running_{false};

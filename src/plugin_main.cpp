@@ -155,7 +155,15 @@ float process_voice_results(float, float, int, void*) {
         }
         std::string error;
         const auto actions = g_execution_engine->handle_event(Event::transcript_event(result->text), error);
+        g_voice_service->set_grammar(g_execution_engine->grammar());
         if (!error.empty()) { log_line("Pilot Monitoring: script error: " + error); continue; }
+        for (const auto& action : actions) execute_action(action);
+    }
+    if (g_execution_engine) {
+        std::string error;
+        const auto actions = g_execution_engine->handle_event(Event::tick_event(0.1F), error);
+        g_voice_service->set_grammar(g_execution_engine->grammar());
+        if (!error.empty()) log_line("Pilot Monitoring: script error: " + error);
         for (const auto& action : actions) execute_action(action);
     }
     return 0.1F;

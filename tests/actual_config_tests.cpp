@@ -33,11 +33,26 @@ int main() {
     if (!expect_true(full_radio != nullptr, "actual full float contact action type was not SetIntegerDataref")) return EXIT_FAILURE;
     if (!expect_equal(full_radio->value, 121500, "actual full float contact frequency")) return EXIT_FAILURE;
 
-    actions = engine.handle_event(Event::transcript_event("test annunciators"), error);
-    if (!expect_true(error.empty(), "actual annunciator failed: " + error) ||
-        !expect_equal(actions.size(), std::size_t{1}, "actual annunciator action count")) return EXIT_FAILURE;
-    const auto* command = std::get_if<TriggerCommandAction>(&actions[0]);
-    if (!expect_true(command != nullptr, "actual annunciator action type was not TriggerCommand")) return EXIT_FAILURE;
-    if (!expect_equal(command->command, std::string{"sim/annunciator/test_all_annunciators"}, "annunciator command")) return EXIT_FAILURE;
+    host.booleans["sim/cockpit2/switches/landing_lights_on"] = true;
+    actions = engine.handle_event(Event::transcript_event("line up checklist"), error);
+    if (!expect_true(error.empty(), "actual lineup start failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "actual lineup start action count")) return EXIT_FAILURE;
+    const auto* start_message = std::get_if<SpeakAction>(&actions[0]);
+    if (!expect_true(start_message != nullptr, "actual lineup start action type") ||
+        !expect_equal(start_message->message, std::string{"line up checklist. runway"}, "lineup start message")) return EXIT_FAILURE;
+
+    actions = engine.handle_event(Event::transcript_event("runway 27 identified"), error);
+    if (!expect_true(error.empty(), "actual runway response failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "actual runway response action count")) return EXIT_FAILURE;
+    const auto* landing_lights_prompt = std::get_if<SpeakAction>(&actions[0]);
+    if (!expect_true(landing_lights_prompt != nullptr, "actual landing lights prompt type") ||
+        !expect_equal(landing_lights_prompt->message, std::string{"landing lights"}, "landing lights prompt")) return EXIT_FAILURE;
+
+    actions = engine.handle_event(Event::transcript_event("landing lights on"), error);
+    if (!expect_true(error.empty(), "actual landing lights response failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "actual lineup completion action count")) return EXIT_FAILURE;
+    const auto* completion = std::get_if<SpeakAction>(&actions[0]);
+    if (!expect_true(completion != nullptr, "actual lineup completion action type") ||
+        !expect_equal(completion->message, std::string{"line up checklist complete"}, "lineup completion message")) return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }
