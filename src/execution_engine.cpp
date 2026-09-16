@@ -253,6 +253,7 @@ int set_integer(lua_State* lua) {
     auto* context_value = context(lua);
     const char* dataref = luaL_checkstring(lua, 1);
     const auto value = static_cast<int>(luaL_checkinteger(lua, 2));
+    log_lua_call(context_value, "set_dataref_integer(\"" + escape(dataref) + "\", " + std::to_string(value) + ")");
     context_value->actions.emplace_back(SetIntegerDatarefAction{dataref, value});
     return 0;
 }
@@ -261,6 +262,9 @@ int set_float(lua_State* lua) {
     auto* context_value = context(lua);
     const char* dataref = luaL_checkstring(lua, 1);
     const auto value = static_cast<float>(luaL_checknumber(lua, 2));
+    std::ostringstream formatted;
+    formatted << value;
+    log_lua_call(context_value, "set_dataref_float(\"" + escape(dataref) + "\", " + formatted.str() + ")");
     context_value->actions.emplace_back(SetFloatDatarefAction{dataref, value});
     return 0;
 }
@@ -268,8 +272,10 @@ int set_float(lua_State* lua) {
 int set_boolean(lua_State* lua) {
     auto* context_value = context(lua);
     const char* dataref = luaL_checkstring(lua, 1);
+    const bool value = lua_toboolean(lua, 2) != 0;
+    log_lua_call(context_value, "set_dataref_boolean(\"" + escape(dataref) + "\", " + (value ? "true" : "false") + ")");
     context_value->actions.emplace_back(
-        SetBooleanDatarefAction{dataref, lua_toboolean(lua, 2) != 0});
+        SetBooleanDatarefAction{dataref, value});
     return 0;
 }
 
@@ -277,8 +283,20 @@ int get_dataref(lua_State* lua, int kind) {
     auto* context_value = context(lua);
     const char* name = luaL_checkstring(lua, 1);
     std::string error;
+    const char* kind_name = kind == 0 ? "integer" : kind == 1 ? "float" : "boolean";
+    const std::string call = "get_dataref_" + std::string(kind_name) +
+                             "(\"" + escape(name) + "\")";
+    auto log_result = [&](std::string_view value) {
+        std::string message = call + " -> " + std::string(value);
+        if (!error.empty()) {
+            message += ", \"" + escape(error) + "\"";
+        }
+        log_lua_call(context_value, message);
+    };
 
     if (!context_value->owner->dataref_host()) {
+        error = "no dataref host";
+        log_result("nil");
         lua_pushnil(lua);
         lua_pushliteral(lua, "no dataref host");
         return 2;
@@ -286,12 +304,21 @@ int get_dataref(lua_State* lua, int kind) {
 
     if (kind == 0) {
         auto value = context_value->owner->dataref_host()->get_integer(name, error);
+        if (value) log_result(std::to_string(*value)); else log_result("nil");
         if (value) lua_pushinteger(lua, *value); else lua_pushnil(lua);
     } else if (kind == 1) {
         auto value = context_value->owner->dataref_host()->get_float(name, error);
+        if (value) {
+            std::ostringstream formatted;
+            formatted << *value;
+            log_result(formatted.str());
+        } else {
+            log_result("nil");
+        }
         if (value) lua_pushnumber(lua, *value); else lua_pushnil(lua);
     } else {
         auto value = context_value->owner->dataref_host()->get_boolean(name, error);
+        log_result(value ? (*value ? "true" : "false") : "nil");
         if (value) lua_pushboolean(lua, *value); else lua_pushnil(lua);
     }
     lua_pushstring(lua, error.c_str());

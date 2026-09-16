@@ -1,4 +1,5 @@
 #include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -30,6 +31,8 @@ XPLMMenuID g_menu = nullptr;
 std::unique_ptr<VoiceService> g_voice_service;
 std::unique_ptr<ExecutionEngine> g_execution_engine;
 bool g_flight_loop_registered = false;
+XPLMFlightLoopID g_aircraft_flight_loop = nullptr;
+std::string g_last_aircraft_load_error;
 
 void log_message(const char* message) {
     XPLMDebugString(message);
@@ -63,7 +66,7 @@ std::filesystem::path plugin_resources_path() {
 }
 
 std::filesystem::path model_path() {
-    return plugin_resources_path() / "models" / "ggml-tiny.en.bin";
+    return plugin_resources_path() / "models" / "ggml-base.en.bin";
 }
 
 std::filesystem::path aircraft_commands_path(std::string& error) {
@@ -154,11 +157,17 @@ void execute_action(const Action& action) {
         const std::string& dataref_name = value.dataref;
         const XPLMDataRef dataref = XPLMFindDataRef(dataref_name.c_str());
         if (dataref == nullptr) {
-            log_message("Pilot Monitoring: dataref target is unavailable.\n");
+            if constexpr (std::is_same_v<T, SetIntegerDatarefAction>) {
+                log_line("Pilot Monitoring: set_dataref_integer target is unavailable: " + dataref_name);
+            } else if constexpr (std::is_same_v<T, SetFloatDatarefAction>) {
+                log_line("Pilot Monitoring: set_dataref_float target is unavailable: " + dataref_name);
+            } else {
+                log_line("Pilot Monitoring: set_dataref_boolean target is unavailable: " + dataref_name);
+            }
             return;
         }
         if (XPLMCanWriteDataRef(dataref) == 0) {
-            log_message("Pilot Monitoring: dataref target is read-only.\n");
+            log_line("Pilot Monitoring: dataref target is read-only: " + dataref_name);
             return;
         }
         if constexpr (std::is_same_v<T, SetIntegerDatarefAction>) XPLMSetDatai(dataref, value.value);
@@ -205,6 +214,32 @@ float process_voice_results(float, float, int, void*) {
     return 0.1F;
 }
 
+float load_aircraft_commands(float, float, int, void*) {
+    if (!g_voice_service) {
+        return 0.0F;
+    }
+
+    std::string error_message;
+    auto engine = std::make_unique<ExecutionEngine>(&g_dataref_host, [](std::string_view message) {
+        log_line("Pilot Monitoring: " + std::string(message));
+    });
+    const auto commands = aircraft_commands_path(error_message);
+    if (commands.empty() || !engine->load_from_file(commands, error_message)) {
+        if (error_message != g_last_aircraft_load_error) {
+            log_line("Pilot Monitoring: waiting for aircraft commands: " + error_message);
+            g_last_aircraft_load_error = error_message;
+        }
+        return 0.25F;
+    }
+
+    g_execution_engine = std::move(engine);
+    g_last_aircraft_load_error.clear();
+    log_grammar(g_execution_engine->grammar_text());
+    g_voice_service->set_grammar(g_execution_engine->grammar());
+    log_message("Pilot Monitoring: aircraft commands loaded.\n");
+    return 0.0F;
+}
+
 void handle_menu(void*, void* item_ref) {
     if (item_ref == kMenuActionReloadPlugins) {
         log_message("Pilot Monitoring: reloading all plug-ins.\n");
@@ -229,6 +264,12 @@ PLUGIN_API int XPluginStart(char* out_name, char* out_signature, char* out_descr
     g_menu = XPLMCreateMenu("Pilot Monitoring", plugins_menu, menu_item, handle_menu, nullptr);
     XPLMAppendMenuItem(g_menu, "Reload all plug-ins", kMenuActionReloadPlugins, 1);
 
+    XPLMCreateFlightLoop_t aircraft_loop_params{};
+    aircraft_loop_params.structSize = sizeof(aircraft_loop_params);
+    aircraft_loop_params.phase = xplm_FlightLoop_Phase_AfterFlightModel;
+    aircraft_loop_params.callbackFunc = load_aircraft_commands;
+    g_aircraft_flight_loop = XPLMCreateFlightLoop(&aircraft_loop_params);
+
     log_message("Pilot Monitoring: plugin started.\n");
     log_message("Pilot Monitoring: whisper.cpp linked: ");
     log_message(whisper_print_system_info());
@@ -240,6 +281,10 @@ PLUGIN_API void XPluginStop() {
     if (g_flight_loop_registered) {
         XPLMUnregisterFlightLoopCallback(process_voice_results, nullptr);
         g_flight_loop_registered = false;
+    }
+    if (g_aircraft_flight_loop != nullptr) {
+        XPLMDestroyFlightLoop(g_aircraft_flight_loop);
+        g_aircraft_flight_loop = nullptr;
     }
     if (g_voice_service) {
         g_voice_service->stop();
@@ -258,26 +303,15 @@ PLUGIN_API void XPluginStop() {
 }
 
 PLUGIN_API int XPluginEnable() {
-    std::string error_message;
-    auto engine = std::make_unique<ExecutionEngine>(&g_dataref_host, [](std::string_view message) {
-        log_line("Pilot Monitoring: " + std::string(message));
-    });
-    const auto commands = aircraft_commands_path(error_message);
-    if (!commands.empty() && engine->load_from_file(commands, error_message)) {
-        g_execution_engine = std::move(engine);
-        log_grammar(g_execution_engine->grammar_text());
-    } else {
-        log_message("Pilot Monitoring: failed to load aircraft commands.\n");
-        log_line(error_message);
-        g_execution_engine.reset();
-    }
-
-    const grammar_parser::parse_state grammar =
-        g_execution_engine ? g_execution_engine->grammar() : grammar_parser::parse_state{};
-    g_voice_service = std::make_unique<VoiceService>(model_path().string(), grammar);
+    g_execution_engine.reset();
+    g_last_aircraft_load_error.clear();
+    g_voice_service = std::make_unique<VoiceService>(model_path().string(), grammar_parser::parse_state{});
     g_voice_service->start();
     XPLMRegisterFlightLoopCallback(process_voice_results, 0.1F, nullptr);
     g_flight_loop_registered = true;
+    if (g_aircraft_flight_loop != nullptr) {
+        XPLMScheduleFlightLoop(g_aircraft_flight_loop, 0.1F, 1);
+    }
     log_message("Pilot Monitoring: plugin enabled.\n");
     return 1;
 }
@@ -292,8 +326,18 @@ PLUGIN_API void XPluginDisable() {
         g_voice_service.reset();
     }
     g_execution_engine.reset();
+    g_last_aircraft_load_error.clear();
     log_message("Pilot Monitoring: plugin disabled.\n");
 }
 
-PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int, void*) {
+PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int message, void* param) {
+    if (message != XPLM_MSG_PLANE_LOADED ||
+        static_cast<int>(reinterpret_cast<intptr_t>(param)) != 0 ||
+        !g_flight_loop_registered || g_aircraft_flight_loop == nullptr) {
+        return;
+    }
+
+    g_execution_engine.reset();
+    g_last_aircraft_load_error.clear();
+    XPLMScheduleFlightLoop(g_aircraft_flight_loop, 0.1F, 1);
 }

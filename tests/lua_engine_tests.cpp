@@ -1,12 +1,16 @@
 #include <cstdlib>
 #include <string>
 #include <variant>
+#include <vector>
 
 #include "test_support.h"
 
 int main() {
     FakeHost host;
-    ExecutionEngine engine(&host);
+    std::vector<std::string> logs;
+    ExecutionEngine engine(&host, [&logs](std::string_view message) {
+        logs.emplace_back(message);
+    });
     const std::string lua = R"lua(
 register_handler {
     id = "contact",
@@ -48,6 +52,8 @@ register_handler {
     host.floats["altitude"] = 1200.0F;
     actions = engine.handle_event(Event::transcript_event("read altitude"), error);
     if (!expect_equal(actions.size(), std::size_t{1}, "read action count")) return EXIT_FAILURE;
+    if (!expect_true(logs.size() >= 2 && logs[logs.size() - 2] == "get_dataref_float(\"altitude\") -> 1200",
+                     "dataref read was not logged with its return value")) return EXIT_FAILURE;
     const auto* seen = std::get_if<SetFloatDatarefAction>(&actions[0]);
     if (!expect_true(seen != nullptr, "read action type was not SetFloatDataref")) return EXIT_FAILURE;
     if (!expect_equal(seen->dataref, std::string{"seen"}, "read destination") ||

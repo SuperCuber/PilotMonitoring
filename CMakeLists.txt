@@ -62,6 +62,7 @@ target_compile_definitions(PilotMonitoring PRIVATE
     IBM=1
     XPLM=1
     XPLM200=1
+    XPLM210=1
     XPLM300=1
     XPLM400=1
     XPLM420=1
@@ -95,8 +96,8 @@ add_custom_command(TARGET PilotMonitoring POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/README.txt"
         "${CMAKE_BINARY_DIR}/package/PilotMonitoring/README.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/libs/whisper.cpp/models/ggml-tiny.en.bin"
-        "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/models/ggml-tiny.en.bin"
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/whisper.cpp/models/ggml-base.en.bin"
+        "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/models/ggml-base.en.bin"
     COMMENT "Adding plugin documentation to the package"
 )
 
@@ -116,6 +117,9 @@ if (BUILD_TESTING)
     add_executable(c172_tests
         tests/c172_tests.cpp
     )
+    add_executable(b738_tests
+        tests/b738_tests.cpp
+    )
 
     target_link_libraries(lua_engine_tests PRIVATE
         pilotmonitoring_core
@@ -123,12 +127,19 @@ if (BUILD_TESTING)
     target_link_libraries(c172_tests PRIVATE
         pilotmonitoring_core
     )
+    target_link_libraries(b738_tests PRIVATE
+        pilotmonitoring_core
+    )
 
     add_test(NAME lua_engine_tests COMMAND lua_engine_tests)
     add_test(NAME aircraft.C172.tune_radio COMMAND c172_tests tune_radio)
     add_test(NAME aircraft.C172.lineup_checklist COMMAND c172_tests lineup_checklist)
+    add_test(NAME aircraft.B738.radio COMMAND b738_tests radio)
+    add_test(NAME aircraft.B738.flap COMMAND b738_tests flap)
+    add_test(NAME aircraft.B738.references COMMAND b738_tests references)
     set_tests_properties(lua_engine_tests
-        aircraft.C172.tune_radio aircraft.C172.lineup_checklist PROPERTIES
+        aircraft.C172.tune_radio aircraft.C172.lineup_checklist
+        aircraft.B738.radio aircraft.B738.flap aircraft.B738.references PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     )
 endif()
