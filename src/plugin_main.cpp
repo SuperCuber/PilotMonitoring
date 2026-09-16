@@ -44,6 +44,7 @@ std::unique_ptr<ControlPanel> g_control_panel;
 bool g_flight_loop_registered = false;
 XPLMFlightLoopID g_aircraft_flight_loop = nullptr;
 std::string g_last_aircraft_load_error;
+std::string g_loaded_lua_file;
 std::mutex g_log_mutex;
 std::deque<std::string> g_private_log;
 
@@ -296,6 +297,20 @@ void execute_action(const Action& action) {
     }, action);
 }
 
+void handle_transcript(const std::string& transcript) {
+    log_line("transcript: \"" + transcript + "\"");
+    if (!g_execution_engine) {
+        log_line("execution engine is unavailable.");
+        return;
+    }
+
+    std::string error;
+    const auto actions = g_execution_engine->handle_event(Event::transcript_event(transcript), error);
+    if (g_voice_service) g_voice_service->set_grammar(g_execution_engine->grammar());
+    for (const auto& action : actions) execute_action(action);
+    if (!error.empty()) log_line("script error: " + error);
+}
+
 float process_voice_results(float, float, int, void*) {
     if (!g_voice_service) {
         return 0.25F;
@@ -322,17 +337,7 @@ float process_voice_results(float, float, int, void*) {
             continue;
         }
 
-        log_line("transcript: \"" + result->text + "\"");
-
-        if (!g_execution_engine) {
-            log_line("execution engine is unavailable.");
-            continue;
-        }
-        std::string error;
-        const auto actions = g_execution_engine->handle_event(Event::transcript_event(result->text), error);
-        g_voice_service->set_grammar(g_execution_engine->grammar());
-        for (const auto& action : actions) execute_action(action);
-        if (!error.empty()) log_line("script error: " + error);
+        handle_transcript(result->text);
     }
     if (g_execution_engine) {
         std::string error;
@@ -363,6 +368,7 @@ float load_aircraft_commands(float, float, int, void*) {
     }
 
     g_execution_engine = std::move(engine);
+    g_loaded_lua_file = commands.filename().string();
     g_last_aircraft_load_error.clear();
     log_grammar(g_execution_engine->grammar_text());
     g_voice_service->set_grammar(g_execution_engine->grammar());
@@ -401,10 +407,12 @@ PLUGIN_API int XPluginStart(char* out_name, char* out_signature, char* out_descr
         [] { return g_voice_service && g_voice_service->is_listening(); },
         [] { return g_execution_engine.get(); },
         [] {
-            if (g_execution_engine) return std::string(g_execution_engine->failed() ? "failed" : "loaded");
+            if (g_execution_engine) return std::string("loaded");
             return g_last_aircraft_load_error.empty() ? "not loaded" : "unavailable: " + g_last_aircraft_load_error;
         },
+        [] { return g_loaded_lua_file.empty() ? "none" : g_loaded_lua_file; },
         private_log_lines,
+        handle_transcript,
     });
 
     XPLMCreateFlightLoop_t aircraft_loop_params{};
@@ -432,6 +440,7 @@ PLUGIN_API void XPluginStop() {
         g_voice_service.reset();
     }
     g_execution_engine.reset();
+    g_loaded_lua_file.clear();
     g_control_panel.reset();
     if (g_menu != nullptr) {
         XPLMDestroyMenu(g_menu);
@@ -446,6 +455,7 @@ PLUGIN_API void XPluginStop() {
 
 PLUGIN_API int XPluginEnable() {
     g_execution_engine.reset();
+    g_loaded_lua_file.clear();
     g_last_aircraft_load_error.clear();
     g_voice_service = std::make_unique<VoiceService>(model_path().string(), grammar_parser::parse_state{});
     g_voice_service->start();
@@ -468,6 +478,7 @@ PLUGIN_API void XPluginDisable() {
         g_voice_service.reset();
     }
     g_execution_engine.reset();
+    g_loaded_lua_file.clear();
     g_last_aircraft_load_error.clear();
     log_line("plugin disabled.");
 }
@@ -480,6 +491,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int message, void* param) {
     }
 
     g_execution_engine.reset();
+    g_loaded_lua_file.clear();
     g_last_aircraft_load_error.clear();
     XPLMScheduleFlightLoop(g_aircraft_flight_loop, 0.1F, 1);
 }

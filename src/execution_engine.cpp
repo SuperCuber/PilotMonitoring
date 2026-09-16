@@ -133,10 +133,7 @@ std::string grammar_for(const std::vector<Handler>& handlers) {
 
 std::string trigger_text(const std::vector<Part>& parts) {
     std::ostringstream output;
-    bool first = true;
     for (const auto& part : parts) {
-        if (!first) output << ' ';
-        first = false;
         if (part.type == Part::Type::Literal) {
             output << part.text;
         } else {
@@ -604,6 +601,23 @@ std::vector<CommandInfo> ExecutionEngine::commands() const {
             info.triggers.push_back(trigger_text(phrase));
         }
         result.push_back(std::move(info));
+    }
+    return result;
+}
+
+std::vector<std::string> ExecutionEngine::expected_triggers() const {
+    std::vector<std::string> result;
+    if (impl_->active) {
+        if (impl_->active->suspension != Impl::Suspension::WaitPhrase) return result;
+        for (const auto& phrase : impl_->active->phrases) {
+            result.push_back(trigger_text(phrase));
+        }
+        return result;
+    }
+    for (const auto& handler : impl_->handlers) {
+        for (const auto& phrase : handler.phrases) {
+            result.push_back(trigger_text(phrase));
+        }
     }
     return result;
 }

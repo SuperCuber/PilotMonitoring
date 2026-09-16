@@ -80,6 +80,7 @@ public:
     [[nodiscard]] bool failed() const { return failed_; }
     [[nodiscard]] DatarefHost* dataref_host() const { return dataref_host_; }
     [[nodiscard]] std::vector<CommandInfo> commands() const;
+    [[nodiscard]] std::vector<std::string> expected_triggers() const;
     [[nodiscard]] std::optional<ActiveCoroutineInfo> active_coroutine() const;
     void set_active_grammar(std::string text, grammar_parser::parse_state grammar);
 

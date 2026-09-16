@@ -14,7 +14,9 @@ public:
         std::function<bool()> is_listening;
         std::function<const ExecutionEngine*()> execution_engine;
         std::function<std::string()> engine_status;
+        std::function<std::string()> lua_file;
         std::function<std::vector<std::string>()> log_lines;
+        std::function<void(std::string)> submit_transcript;
     };
 
     explicit ControlPanel(Sources sources);
@@ -44,6 +46,7 @@ private:
     void draw_commands(int left, int top, int right, int bottom);
     void draw_grammar(int left, int top, int right, int bottom);
     void draw_settings(int left, int top, int right, int bottom);
+    void handle_key(char key, char virtual_key, XPLMKeyFlags flags, int losing_focus);
 
     Sources sources_;
     XPLMWindowID window_ = nullptr;
@@ -52,4 +55,6 @@ private:
     int command_scroll_ = 0;
     int grammar_scroll_ = 0;
     int selected_command_ = 0;
+    bool text_input_active_ = false;
+    std::string typed_command_;
 };

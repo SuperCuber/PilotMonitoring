@@ -32,10 +32,14 @@ register_handler {
         { "line up checklist" },
     },
     handler = function(_)
-        say("line up checklist. runway")
+        say("line up checklist, runway")
         wait_for_phrase({ { "runway", slot("runway", "integer"), "identified" } })
         say("landing lights")
-        wait_for_phrase({ { "landing lights on" } })
+        wait_for_phrase({
+            { "landing lights on" },
+            { "on" },
+            { "set" },
+        })
         local landing_lights_on = get_dataref_boolean("sim/cockpit2/switches/landing_lights_on")
         if not landing_lights_on then
             say("negative")

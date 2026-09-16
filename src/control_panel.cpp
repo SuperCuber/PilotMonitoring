@@ -1,18 +1,21 @@
 #include "control_panel.h"
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 #include <utility>
 
 #include <GL/gl.h>
 
 #include "XPLMGraphics.h"
+#include "XPLMDefs.h"
 #include "execution_engine.h"
 
 namespace {
 
 constexpr int kMargin = 16;
 constexpr int kLineHeight = 16;
+constexpr int kManualInputBaselineOffset = 5 * kLineHeight + 10;
 constexpr int kTabHeight = 32;
 constexpr int kTabWidth = 104;
 
@@ -20,6 +23,8 @@ constexpr float kPanelColor[] = {0.08F, 0.09F, 0.10F};
 constexpr float kInactiveTabColor[] = {0.21F, 0.24F, 0.27F};
 constexpr float kActiveTabColor[] = {0.42F, 0.45F, 0.48F};
 constexpr float kTabBorderColor[] = {0.11F, 0.13F, 0.15F};
+constexpr float kStatusGreen[] = {0.38F, 0.90F, 0.52F};
+constexpr float kStatusAmber[] = {1.0F, 0.72F, 0.25F};
 
 void fill_rect(int left, int top, int right, int bottom, const float* color) {
     glColor3fv(color);
@@ -37,11 +42,24 @@ void draw_tab(int left, int top, bool active) {
               active ? kActiveTabColor : kInactiveTabColor);
 }
 
-void draw_text(float* color, int x, int y, const std::string& text) {
-    XPLMDrawString(color, x, y, const_cast<char*>(text.c_str()), nullptr, xplmFont_Proportional);
+void draw_text(const float* color, int x, int y, const std::string& text) {
+    XPLMDrawString(const_cast<float*>(color), x, y, const_cast<char*>(text.c_str()), nullptr, xplmFont_Basic);
 }
 
-void draw_lines(float* color, int x, int& y, int bottom, const std::string& text) {
+void draw_status_field(
+    int x,
+    int y,
+    const std::string& key,
+    const std::string& value,
+    const float* value_color) {
+    float key_color[] = {0.92F, 0.92F, 0.92F};
+    int character_width = 0;
+    XPLMGetFontDimensions(xplmFont_Basic, &character_width, nullptr, nullptr);
+    draw_text(key_color, x, y, key);
+    draw_text(value_color, x + static_cast<int>(key.size() + 1) * character_width, y, value);
+}
+
+void draw_lines(const float* color, int x, int& y, int bottom, const std::string& text) {
     std::istringstream stream(text);
     std::string line;
     while (y >= bottom && std::getline(stream, line)) {
@@ -53,13 +71,13 @@ void draw_lines(float* color, int x, int& y, int bottom, const std::string& text
 std::string yield_description(const ActiveCoroutineInfo& active) {
     switch (active.reason) {
     case ActiveCoroutineInfo::YieldReason::WaitMs:
-        return "Yielded: wait_ms (" + std::to_string(static_cast<int>(active.remaining_ms + 0.5)) + " ms remaining)";
+        return "wait_ms (" + std::to_string(static_cast<int>(active.remaining_ms + 0.5)) + " ms remaining)";
     case ActiveCoroutineInfo::YieldReason::WaitUntil:
-        return "Yielded: wait_until (waiting for predicate)";
+        return "wait_until";
     case ActiveCoroutineInfo::YieldReason::WaitPhrase:
-        return "Yielded: wait_for_phrase (waiting for recognized phrase)";
+        return "wait_for_phrase";
     }
-    return "Yielded";
+    return "no";
 }
 
 } // namespace
@@ -116,7 +134,8 @@ int ControlPanel::wheel_callback(XPLMWindowID, int x, int y, int, int clicks, vo
     return static_cast<ControlPanel*>(refcon)->handle_wheel(x, y, clicks);
 }
 
-void ControlPanel::key_callback(XPLMWindowID, char, XPLMKeyFlags, char, void*, int) {
+void ControlPanel::key_callback(XPLMWindowID, char key, XPLMKeyFlags flags, char virtual_key, void* refcon, int losing_focus) {
+    static_cast<ControlPanel*>(refcon)->handle_key(key, virtual_key, flags, losing_focus);
 }
 
 void ControlPanel::draw() {
@@ -128,14 +147,17 @@ void ControlPanel::draw() {
     XPLMSetGraphicsState(0, 0, 0, 0, 1, 0, 0);
 
     float title[] = {0.85F, 0.92F, 1.0F};
-    float muted[] = {0.64F, 0.70F, 0.76F};
 
     const char* labels[] = {"Status", "Commands", "Grammar", "Settings"};
     for (int index = 0; index < 4; ++index) {
         const int x = left + kMargin + index * kTabWidth;
         const bool selected = static_cast<int>(tab_) == index;
         draw_tab(x, top - 8, selected);
-        draw_text(selected ? title : muted, x + 12, top - 29, labels[index]);
+        std::string label(labels[index]);
+        std::transform(label.begin(), label.end(), label.begin(), [](unsigned char character) {
+            return static_cast<char>(std::toupper(character));
+        });
+        draw_text(title, x + 12, top - 29, label);
     }
 
     const int content_top = top - kTabHeight - 16;
@@ -148,6 +170,7 @@ void ControlPanel::draw() {
 void ControlPanel::draw_status(int left, int top, int right, int bottom) {
     float normal[] = {0.92F, 0.92F, 0.92F};
     float muted[] = {0.64F, 0.70F, 0.76F};
+    float cyan[] = {0.32F, 0.82F, 0.94F};
     const int panel_left = left;
     const int panel_right = right;
     const int log_top = bottom + 180;
@@ -156,45 +179,94 @@ void ControlPanel::draw_status(int left, int top, int right, int bottom) {
 
     int y = top - 10;
     const int text_left = left + 8;
-    draw_text(normal, text_left, y, std::string("Listening: ") + (sources_.is_listening() ? "yes" : "no"));
+    draw_status_field(text_left, y, "ENGINE:", sources_.engine_status(), kStatusGreen);
     y -= kLineHeight;
-    draw_text(normal, text_left, y, "Command engine: " + sources_.engine_status());
+    draw_status_field(text_left, y, "LUA FILE:", sources_.lua_file(), kStatusGreen);
+    y -= kLineHeight;
+    const bool listening = sources_.is_listening();
+    draw_status_field(text_left, y, "LISTENING:", listening ? "yes" : "no",
+                      listening ? kStatusAmber : kStatusGreen);
     y -= kLineHeight;
     const ExecutionEngine* engine = sources_.execution_engine();
     if (engine) {
         if (const auto active = engine->active_coroutine()) {
-            draw_text(normal, text_left, y, "Active coroutine: " + active->command_id);
+            draw_status_field(text_left, y, "ACTIVE COMMAND:", active->command_id, kStatusAmber);
             y -= kLineHeight;
-            draw_text(normal, text_left, y, yield_description(*active));
-            y -= kLineHeight;
-            if (!active->accepted_grammar.empty()) {
-                draw_text(muted, text_left, y, "Accepted grammar:");
-                y -= kLineHeight;
-                draw_lines(muted, text_left + 12, y, log_top + 12, active->accepted_grammar);
-            }
+            draw_status_field(text_left, y, "WAITING:", yield_description(*active), kStatusAmber);
         } else {
-            draw_text(normal, text_left, y, "Active coroutine: none");
+            draw_status_field(text_left, y, "ACTIVE COMMAND:", "none", kStatusGreen);
             y -= kLineHeight;
+            draw_status_field(text_left, y, "WAITING:", "no", kStatusGreen);
         }
+        y -= kLineHeight;
+
+        float cyan[] = {0.32F, 0.82F, 0.94F};
+        constexpr char kManualInputLabel[] = "MAN INPUT:";
+        int character_width = 0;
+        XPLMGetFontDimensions(xplmFont_Basic, &character_width, nullptr, nullptr);
+        const int input_left = text_left + static_cast<int>(sizeof(kManualInputLabel)) * character_width;
+        draw_text(cyan, text_left, y, kManualInputLabel);
+        fill_rect(input_left, y + 10, right - 8, y - 5,
+                  text_input_active_ ? kActiveTabColor : kInactiveTabColor);
+        draw_text(normal, input_left + 6, y,
+                  typed_command_.empty()
+                      ? (text_input_active_ ? "Enter to submit" : "click here")
+                      : typed_command_);
+        y -= kLineHeight;
+
+        const auto triggers = engine->expected_triggers();
+        draw_text(cyan, text_left, y, "TRIGGERS:");
+        y -= kLineHeight;
+        if (triggers.empty()) {
+            const std::string message = engine->active_coroutine()
+                ? "none while the active coroutine waits"
+                : "none";
+            draw_text(normal, text_left + 12, y, message);
+            y -= kLineHeight;
+        } else {
+            constexpr std::size_t kStatusTriggerLimit = 6;
+            const std::size_t count = (std::min)(triggers.size(), kStatusTriggerLimit);
+            for (std::size_t index = 0; index < count; ++index) {
+                draw_text(normal, text_left + 12, y, triggers[index]);
+                y -= kLineHeight;
+            }
+            if (triggers.size() > count) {
+                draw_text(muted, text_left + 12, y,
+                          "... " + std::to_string(triggers.size() - count) + " more; see Commands");
+                y -= kLineHeight;
+            }
+        }
+    } else {
+        draw_status_field(text_left, y, "ACTIVE COMMAND:", "none", kStatusGreen);
+        y -= kLineHeight;
+        draw_status_field(text_left, y, "WAITING:", "no", kStatusGreen);
     }
 
     const auto logs = sources_.log_lines();
-    const int visible = (std::max)(1, (log_top - bottom - 8) / kLineHeight);
+    const int visible = (std::max)(1, (log_top - bottom - 8) / kLineHeight - 2);
     const int max_scroll = (std::max)(0, static_cast<int>(logs.size()) - visible);
     log_scroll_ = std::clamp(log_scroll_, 0, max_scroll);
     const int start = (std::max)(0, static_cast<int>(logs.size()) - visible - log_scroll_);
     int log_y = log_top - 12;
-    for (int index = start; index < static_cast<int>(logs.size()) && log_y >= bottom + 4; ++index) {
+    if (log_scroll_ < max_scroll) {
+        draw_text(kStatusGreen, text_left, log_y, "^^^");
+    }
+    log_y -= kLineHeight;
+    for (int index = start, drawn = 0;
+         index < static_cast<int>(logs.size()) && drawn < visible;
+         ++index, ++drawn) {
         draw_text(normal, text_left, log_y, logs[index]);
         log_y -= kLineHeight;
     }
+    if (log_scroll_ > 0) draw_text(kStatusGreen, text_left, bottom + 4, "VVV");
 }
 
 void ControlPanel::draw_commands(int left, int top, int right, int bottom) {
     float normal[] = {0.92F, 0.92F, 0.92F};
-    float selected[] = {0.85F, 0.92F, 1.0F};
     float muted[] = {0.64F, 0.70F, 0.76F};
-    float yielded[] = {1.0F, 0.72F, 0.25F};
+    float amber[] = {1.0F, 0.72F, 0.25F};
+    float green[] = {0.38F, 0.90F, 0.52F};
+    float cyan[] = {0.32F, 0.82F, 0.94F};
     const ExecutionEngine* engine = sources_.execution_engine();
     if (!engine) {
         draw_text(muted, left, top, "No aircraft command file is currently loaded.");
@@ -209,24 +281,29 @@ void ControlPanel::draw_commands(int left, int top, int right, int bottom) {
     const int list_right = left + (std::max)(180, (right - left) / 3);
     fill_rect(left, top + 8, list_right, bottom, kPanelColor);
     fill_rect(list_right + 6, top + 8, right, bottom, kPanelColor);
-    const int visible = (std::max)(1, (top - bottom - 8) / kLineHeight);
+    const int visible = (std::max)(1, (top - bottom - 8) / kLineHeight - 2);
     const int max_scroll = (std::max)(0, static_cast<int>(commands.size()) - visible);
     command_scroll_ = std::clamp(command_scroll_, 0, max_scroll);
     const int start = command_scroll_;
     const auto active = engine->active_coroutine();
     int y = top - kLineHeight;
-    for (int index = start; index < static_cast<int>(commands.size()) && y >= bottom + 4; ++index) {
+    if (command_scroll_ > 0) {
+        draw_text(green, left + 12, y, "^^^");
+    }
+    y -= kLineHeight;
+    for (int index = start, drawn = 0;
+         index < static_cast<int>(commands.size()) && drawn < visible;
+         ++index, ++drawn) {
         const bool is_yielded = active && active->command_id == commands[index].id;
-        draw_text(is_yielded ? yielded : (index == selected_command_ ? selected : normal),
-                  left + 16, y, commands[index].id);
+        draw_text(green, left + 12, y, index == selected_command_ ? ">" : " ");
+        draw_text(is_yielded ? amber : normal, left + 24, y, commands[index].id);
         y -= kLineHeight;
     }
+    if (command_scroll_ < max_scroll) draw_text(green, left + 12, bottom + 4, "VVV");
 
     const auto& command = commands[selected_command_];
-    int detail_y = top;
-    draw_text(selected, list_right + 24, detail_y, "Command: " + command.id);
-    detail_y -= 2 * kLineHeight;
-    draw_text(muted, list_right + 24, detail_y, "Triggers:");
+    int detail_y = top - 10;
+    draw_text(cyan, list_right + 24, detail_y, "TRIGGERS:");
     detail_y -= kLineHeight;
     for (const auto& trigger : command.triggers) {
         draw_text(normal, list_right + 36, detail_y, trigger);
@@ -235,7 +312,7 @@ void ControlPanel::draw_commands(int left, int top, int right, int bottom) {
     if (active && active->command_id == command.id &&
         active->reason == ActiveCoroutineInfo::YieldReason::WaitPhrase) {
         detail_y -= kLineHeight;
-        draw_text(yielded, list_right + 24, detail_y, "Active grammar (currently accepted):");
+        draw_text(amber, list_right + 24, detail_y, "ACTIVE GRAMMAR:");
         detail_y -= kLineHeight;
         draw_lines(normal, list_right + 36, detail_y, bottom + 4, active->accepted_grammar);
     }
@@ -250,26 +327,32 @@ void ControlPanel::draw_grammar(int left, int top, int right, int bottom) {
         return;
     }
     fill_rect(left, top + 8, right, bottom, kPanelColor);
-    draw_text(muted, left + 8, top - 10, "Top-level grammar for all registered commands:");
     const std::string& grammar = engine->top_level_grammar_text();
     std::istringstream stream(grammar);
     std::vector<std::string> lines;
     std::string line;
     while (std::getline(stream, line)) lines.push_back(std::move(line));
-    const int visible = (std::max)(1, (top - bottom - 2 * kLineHeight) / kLineHeight);
+    const int visible = (std::max)(1, (top - bottom - kLineHeight) / kLineHeight - 2);
     const int max_scroll = (std::max)(0, static_cast<int>(lines.size()) - visible);
     grammar_scroll_ = std::clamp(grammar_scroll_, 0, max_scroll);
-    int y = top - 2 * kLineHeight - 2;
-    for (int index = grammar_scroll_; index < static_cast<int>(lines.size()) && y >= bottom + 4; ++index) {
+    int y = top - 10;
+    if (grammar_scroll_ > 0) {
+        draw_text(kStatusGreen, left + 20, y, "^^^");
+    }
+    y -= kLineHeight;
+    for (int index = grammar_scroll_, drawn = 0;
+         index < static_cast<int>(lines.size()) && drawn < visible;
+         ++index, ++drawn) {
         draw_text(normal, left + 20, y, lines[index]);
         y -= kLineHeight;
     }
+    if (grammar_scroll_ < max_scroll) draw_text(kStatusGreen, left + 20, bottom + 4, "VVV");
 }
 
 void ControlPanel::draw_settings(int left, int top, int right, int bottom) {
-    float muted[] = {0.64F, 0.70F, 0.76F};
+    float normal[] = {0.92F, 0.92F, 0.92F};
     fill_rect(left, top + 8, right, bottom, kPanelColor);
-    draw_text(muted, left + 8, top - 10, "Settings are not available yet.");
+    draw_text(normal, left + 8, top - 10, "INOP");
 }
 
 int ControlPanel::handle_mouse(int x, int y, XPLMMouseStatus status) {
@@ -281,12 +364,34 @@ int ControlPanel::handle_mouse(int x, int y, XPLMMouseStatus status) {
     const int tab_index = (x - (left + kMargin)) / kTabWidth;
     if (y >= top - 40 && y <= top - 8 && tab_index >= 0 && tab_index < 4) {
         tab_ = static_cast<Tab>(tab_index);
+        text_input_active_ = false;
+        XPLMTakeKeyboardFocus(nullptr);
         return 1;
+    }
+    if (tab_ == Tab::Status) {
+        const int content_top = top - kTabHeight - 16;
+        constexpr char kManualInputLabel[] = "MAN INPUT:";
+        int character_width = 0;
+        XPLMGetFontDimensions(xplmFont_Basic, &character_width, nullptr, nullptr);
+        const int input_left = left + kMargin + 8 +
+                               static_cast<int>(sizeof(kManualInputLabel)) * character_width;
+        const int input_baseline = content_top - kManualInputBaselineOffset;
+        const int input_top = input_baseline + 10;
+        const int input_bottom = input_baseline - 5;
+        if (x >= input_left && x <= right - kMargin - 8 &&
+            y >= input_bottom && y <= input_top) {
+            text_input_active_ = true;
+            XPLMBringWindowToFront(window_);
+            XPLMTakeKeyboardFocus(window_);
+            return 1;
+        }
+        text_input_active_ = false;
+        XPLMTakeKeyboardFocus(nullptr);
     }
     if (tab_ == Tab::Commands && y < top - 48) {
         const int list_right = left + kMargin + (std::max)(180, (right - left - 2 * kMargin) / 3);
         if (x <= list_right) {
-            const int index = command_scroll_ + (top - 48 - y) / kLineHeight;
+            const int index = command_scroll_ + (top - 48 - y) / kLineHeight - 1;
             if (const auto* engine = sources_.execution_engine()) {
                 const auto commands = engine->commands();
                 if (index >= 0 && index < static_cast<int>(commands.size())) selected_command_ = index;
@@ -296,9 +401,81 @@ int ControlPanel::handle_mouse(int x, int y, XPLMMouseStatus status) {
     return 1;
 }
 
-int ControlPanel::handle_wheel(int, int, int clicks) {
-    if (tab_ == Tab::Status) log_scroll_ = (std::max)(0, log_scroll_ + clicks);
-    if (tab_ == Tab::Commands) command_scroll_ = (std::max)(0, command_scroll_ - clicks);
-    if (tab_ == Tab::Grammar) grammar_scroll_ = (std::max)(0, grammar_scroll_ - clicks);
-    return 1;
+void ControlPanel::handle_key(char key, char virtual_key, XPLMKeyFlags flags, int losing_focus) {
+    if (losing_focus) {
+        text_input_active_ = false;
+        return;
+    }
+    if (!text_input_active_) return;
+    if ((flags & xplm_UpFlag) != 0) return;
+    const unsigned char virtual_code = static_cast<unsigned char>(virtual_key);
+    if (virtual_code == XPLM_VK_RETURN || key == '\r' || key == '\n') {
+        if (!typed_command_.empty()) {
+            sources_.submit_transcript(std::move(typed_command_));
+            typed_command_.clear();
+        }
+        return;
+    }
+    if (virtual_code == XPLM_VK_BACK || key == '\b') {
+        if (!typed_command_.empty()) typed_command_.pop_back();
+        return;
+    }
+    if (virtual_code == XPLM_VK_ESCAPE) {
+        typed_command_.clear();
+        text_input_active_ = false;
+        XPLMTakeKeyboardFocus(nullptr);
+        return;
+    }
+    if (std::isprint(static_cast<unsigned char>(key)) && typed_command_.size() < 240) {
+        typed_command_.push_back(key);
+    }
+}
+
+int ControlPanel::handle_wheel(int x, int y, int clicks) {
+    int left = 0;
+    int top = 0;
+    int right = 0;
+    int bottom = 0;
+    XPLMGetWindowGeometry(window_, &left, &top, &right, &bottom);
+    const int content_left = left + kMargin;
+    const int content_right = right - kMargin;
+    const int content_top = top - kTabHeight - 16;
+    const int content_bottom = bottom + kMargin;
+    auto move_scroll = [clicks](int& scroll, int maximum, int delta) {
+        const int previous = scroll;
+        scroll = std::clamp(scroll + delta * clicks, 0, maximum);
+        return scroll != previous;
+    };
+
+    if (tab_ == Tab::Status) {
+        const int log_top = content_bottom + 180;
+        if (x < content_left || x > content_right || y < content_bottom || y > log_top) return 0;
+        const auto logs = sources_.log_lines();
+        const int visible = (std::max)(1, (log_top - content_bottom - 8) / kLineHeight - 2);
+        const int maximum = (std::max)(0, static_cast<int>(logs.size()) - visible);
+        return move_scroll(log_scroll_, maximum, 1) ? 1 : 0;
+    }
+
+    if (tab_ == Tab::Commands) {
+        const int list_right = content_left + (std::max)(180, (content_right - content_left) / 3);
+        if (x < content_left || x > list_right || y < content_bottom || y > content_top + 8) return 0;
+        const auto* engine = sources_.execution_engine();
+        if (!engine) return 0;
+        const int visible = (std::max)(1, (content_top - content_bottom - 8) / kLineHeight - 2);
+        const int maximum = (std::max)(0, static_cast<int>(engine->commands().size()) - visible);
+        return move_scroll(command_scroll_, maximum, -1) ? 1 : 0;
+    }
+
+    if (tab_ == Tab::Grammar) {
+        if (x < content_left || x > content_right || y < content_bottom || y > content_top + 8) return 0;
+        const auto* engine = sources_.execution_engine();
+        if (!engine) return 0;
+        const int lines = static_cast<int>(std::count(
+            engine->top_level_grammar_text().begin(), engine->top_level_grammar_text().end(), '\n')) + 1;
+        const int visible = (std::max)(1, (content_top - content_bottom - kLineHeight) / kLineHeight - 2);
+        const int maximum = (std::max)(0, lines - visible);
+        return move_scroll(grammar_scroll_, maximum, -1) ? 1 : 0;
+    }
+
+    return 0;
 }

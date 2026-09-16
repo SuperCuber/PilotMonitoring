@@ -183,6 +183,8 @@ register_handler {
         !expect_true(timed_active->reason == ActiveCoroutineInfo::YieldReason::WaitMs,
                      "timed active reason") ||
         !expect_true(timed_active->remaining_ms > 0.0, "timed remaining duration")) return EXIT_FAILURE;
+    if (!expect_equal(engine.expected_triggers().size(), std::size_t{0},
+                      "timer wait accepted triggers")) return EXIT_FAILURE;
     actions = engine.handle_event(Event::transcript_event("condition"), error);
     if (!expect_true(error.empty(), "transcript during wait failed: " + error) ||
         !expect_equal(actions.size(), std::size_t{0}, "transcript during wait action count")) return EXIT_FAILURE;
@@ -220,6 +222,10 @@ register_handler {
                      phrase_active->reason == ActiveCoroutineInfo::YieldReason::WaitPhrase &&
                      phrase_active->accepted_grammar.find("integer_slot") != std::string::npos,
                      "phrase wait grammar was not exposed")) return EXIT_FAILURE;
+    const auto phrase_triggers = engine.expected_triggers();
+    if (!expect_equal(phrase_triggers.size(), std::size_t{1}, "phrase wait trigger count") ||
+        !expect_equal(phrase_triggers[0], std::string{"set <value:integer>"},
+                      "phrase wait trigger")) return EXIT_FAILURE;
     actions = engine.handle_event(Event::transcript_event("set 42"), error);
     if (!expect_true(error.empty(), "phrase wait completion failed: " + error) ||
         !expect_equal(actions.size(), std::size_t{1}, "phrase wait completion action count") ||
