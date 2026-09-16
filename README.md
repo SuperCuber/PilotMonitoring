@@ -43,7 +43,11 @@ cmake -B build
 cmake --build build --config Release --target PilotMonitoring
 
 # Build all test binaries and run all tests.
-cmake --build build --config Release --target lua_engine_tests c172_tests && ctest --test-dir build -C Release --output-on-failure
+cmake --build build --config Release --target lua_engine_tests c172_tests
+ctest --test-dir build -C Release --output-on-failure
+
+# Run only one aircraft handler test.
+ctest --test-dir build -C Release -R "^aircraft\.C172\.tune_radio$" --output-on-failure
 
 # Once: link the build package into X-Plane (replace the X-Plane path first).
 New-Item -ItemType SymbolicLink `

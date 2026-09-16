@@ -125,8 +125,10 @@ if (BUILD_TESTING)
     )
 
     add_test(NAME lua_engine_tests COMMAND lua_engine_tests)
-    add_test(NAME c172_tests COMMAND c172_tests)
-    set_tests_properties(lua_engine_tests c172_tests PROPERTIES
+    add_test(NAME aircraft.C172.tune_radio COMMAND c172_tests tune_radio)
+    add_test(NAME aircraft.C172.lineup_checklist COMMAND c172_tests lineup_checklist)
+    set_tests_properties(lua_engine_tests
+        aircraft.C172.tune_radio aircraft.C172.lineup_checklist PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     )
 endif()
