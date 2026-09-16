@@ -96,8 +96,8 @@ add_custom_command(TARGET PilotMonitoring POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/commands.lua"
         "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/commands.lua"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/libs/whisper.cpp/models/ggml-base.en.bin"
-        "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/models/ggml-base.en.bin"
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/whisper.cpp/models/ggml-tiny.en.bin"
+        "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/models/ggml-tiny.en.bin"
     COMMENT "Adding plugin documentation to the package"
 )
 

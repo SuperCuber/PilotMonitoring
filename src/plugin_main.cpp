@@ -62,7 +62,7 @@ std::filesystem::path plugin_resources_path() {
 }
 
 std::filesystem::path model_path() {
-    return plugin_resources_path() / "models" / "ggml-base.en.bin";
+    return plugin_resources_path() / "models" / "ggml-tiny.en.bin";
 }
 
 std::filesystem::path commands_path() {

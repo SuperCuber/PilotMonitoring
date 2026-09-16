@@ -29,9 +29,9 @@ then extract its `SDK` directory to `libs/XPSDK430/SDK`. The expected files
 include `libs/XPSDK430/SDK/CHeaders/XPLM/XPLMPlugin.h` and
 `libs/XPSDK430/SDK/Libraries/Win/XPLM_64.lib`.
 
-The Whisper model is also local-only. Download `ggml-base.en.bin` from the
+The Whisper model is also local-only. Download `ggml-tiny.en.bin` from the
 whisper.cpp model releases and place it at
-`libs/whisper.cpp/models/ggml-base.en.bin` before building the plugin.
+`libs/whisper.cpp/models/ggml-tiny.en.bin` before building the plugin.
 
 Run these from the project root in PowerShell:
 
