@@ -1,4 +1,5 @@
 /build/
+/artifacts/
 /.vs/
 *.user
 *.vcxproj
