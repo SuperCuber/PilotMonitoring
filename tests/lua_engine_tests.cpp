@@ -24,6 +24,14 @@ register_handler {
         set_dataref_float("seen", value)
     end,
 }
+register_handler {
+    id = "announce",
+    phrases = { { "announce" } },
+    handler = function()
+        print("hello", 42)
+        say("checklist complete")
+    end,
+}
 )lua";
 
     std::string error;
@@ -56,5 +64,12 @@ register_handler {
         !expect_equal(chained_seen->value, 1200.0F, "second chained action value")) return EXIT_FAILURE;
 
     if (!expect_equal(engine.handle_event(Event::tick_event(0.1F), error).size(), std::size_t{0}, "tick action count")) return EXIT_FAILURE;
+
+    actions = engine.handle_event(Event::transcript_event("announce"), error);
+    if (!expect_true(error.empty(), "announce failed: " + error) ||
+        !expect_equal(actions.size(), std::size_t{1}, "announce action count")) return EXIT_FAILURE;
+    const auto* speech = std::get_if<SpeakAction>(&actions[0]);
+    if (!expect_true(speech != nullptr, "say action type") ||
+        !expect_equal(speech->message, std::string{"checklist complete"}, "say action message")) return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }

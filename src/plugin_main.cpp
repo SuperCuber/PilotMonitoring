@@ -111,6 +111,9 @@ void execute_action(const Action& action) {
             }
             XPLMCommandOnce(command_ref);
             return;
+        } else if constexpr (std::is_same_v<T, SpeakAction>) {
+            XPLMSpeakString(value.message.c_str());
+            return;
         } else {
         const std::string& dataref_name = value.dataref;
         const XPLMDataRef dataref = XPLMFindDataRef(dataref_name.c_str());

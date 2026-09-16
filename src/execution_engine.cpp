@@ -142,6 +142,27 @@ int trigger_command(lua_State* lua) {
     c->actions.emplace_back(TriggerCommandAction{command});
     return 0;
 }
+int print_message(lua_State* lua) {
+    auto* c = context(lua);
+    std::string message;
+    const int argument_count = lua_gettop(lua);
+    for (int index = 1; index <= argument_count; ++index) {
+        if (index > 1) message.push_back('\t');
+        std::size_t length = 0;
+        const char* value = luaL_tolstring(lua, index, &length);
+        message.append(value, length);
+        lua_pop(lua, 1);
+    }
+    log_lua_call(c, "print(\"" + message + "\")");
+    return 0;
+}
+int say(lua_State* lua) {
+    auto* c = context(lua);
+    const char* message = luaL_checkstring(lua, 1);
+    log_lua_call(c, "say(\"" + std::string(message) + "\")");
+    c->actions.emplace_back(SpeakAction{message});
+    return 0;
+}
 int set_integer(lua_State* lua) {
     auto* c = context(lua);
     const char* dataref = luaL_checkstring(lua, 1);
@@ -207,6 +228,8 @@ void install_api(lua_State* lua) {
     for (const char* name : {"io", "os", "debug", "package", "require", "dofile", "loadfile"}) { lua_pushnil(lua); lua_setglobal(lua, name); }
     lua_pushcfunction(lua, register_handler); lua_setglobal(lua, "register_handler");
     lua_pushcfunction(lua, slot_function); lua_setglobal(lua, "slot");
+    lua_pushcfunction(lua, print_message); lua_setglobal(lua, "print");
+    lua_pushcfunction(lua, say); lua_setglobal(lua, "say");
     lua_pushcfunction(lua, trigger_command); lua_setglobal(lua, "trigger_command");
     lua_pushcfunction(lua, set_integer); lua_setglobal(lua, "set_dataref_integer");
     lua_pushcfunction(lua, set_float); lua_setglobal(lua, "set_dataref_float");
