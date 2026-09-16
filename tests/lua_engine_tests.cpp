@@ -41,6 +41,14 @@ register_handler {
     std::string error;
     if (!expect_true(engine.load_from_lua_text(lua, error), "Lua failed: " + error)) return EXIT_FAILURE;
 
+    const auto initial_commands = engine.commands();
+    if (!expect_equal(initial_commands.size(), std::size_t{3}, "command inspection count") ||
+        !expect_equal(initial_commands[0].id, std::string{"contact"}, "first command id") ||
+        !expect_true(initial_commands[0].triggers[0].find("<frequency:float>") != std::string::npos,
+                     "command trigger does not describe slot") ||
+        !expect_true(engine.top_level_grammar_text().find("float_slot") != std::string::npos,
+                     "top-level grammar does not include float slot")) return EXIT_FAILURE;
+
     auto actions = engine.handle_event(Event::transcript_event("CONTACT 121.5"), error);
     if (!expect_true(error.empty(), "contact failed: " + error) ||
         !expect_equal(actions.size(), std::size_t{1}, "contact action count")) return EXIT_FAILURE;
@@ -162,6 +170,12 @@ register_handler {
     actions = engine.handle_event(Event::transcript_event("timed"), error);
     if (!expect_true(error.empty(), "timed start failed: " + error) ||
         !expect_equal(actions.size(), std::size_t{1}, "timed start action count")) return EXIT_FAILURE;
+    const auto timed_active = engine.active_coroutine();
+    if (!expect_true(timed_active.has_value(), "timed handler was not exposed as active") ||
+        !expect_equal(timed_active->command_id, std::string{"timed"}, "timed active command id") ||
+        !expect_true(timed_active->reason == ActiveCoroutineInfo::YieldReason::WaitMs,
+                     "timed active reason") ||
+        !expect_true(timed_active->remaining_ms > 0.0, "timed remaining duration")) return EXIT_FAILURE;
     actions = engine.handle_event(Event::transcript_event("condition"), error);
     if (!expect_true(error.empty(), "transcript during wait failed: " + error) ||
         !expect_equal(actions.size(), std::size_t{0}, "transcript during wait action count")) return EXIT_FAILURE;
@@ -171,11 +185,16 @@ register_handler {
     actions = engine.handle_event(Event::tick_event(0.05F), error);
     if (!expect_true(error.empty(), "timed completion failed: " + error) ||
         !expect_equal(actions.size(), std::size_t{1}, "timed completion action count")) return EXIT_FAILURE;
+    if (!expect_true(!engine.active_coroutine().has_value(), "completed handler remained active")) return EXIT_FAILURE;
 
     host.booleans["ready"] = false;
     actions = engine.handle_event(Event::transcript_event("condition"), error);
     if (!expect_true(error.empty(), "condition start failed: " + error) ||
         !expect_equal(actions.size(), std::size_t{0}, "condition start action count")) return EXIT_FAILURE;
+    const auto condition_active = engine.active_coroutine();
+    if (!expect_true(condition_active.has_value() &&
+                     condition_active->reason == ActiveCoroutineInfo::YieldReason::WaitUntil,
+                     "condition wait was not exposed")) return EXIT_FAILURE;
     actions = engine.handle_event(Event::tick_event(0.1F), error);
     if (!expect_true(error.empty(), "false condition tick failed: " + error) ||
         !expect_equal(actions.size(), std::size_t{0}, "false condition action count")) return EXIT_FAILURE;
@@ -189,6 +208,11 @@ register_handler {
         !expect_equal(actions.size(), std::size_t{1}, "phrase wait start action count") ||
         !expect_true(engine.grammar_text().find("integer_slot") != std::string::npos,
                      "phrase grammar was not installed")) return EXIT_FAILURE;
+    const auto phrase_active = engine.active_coroutine();
+    if (!expect_true(phrase_active.has_value() &&
+                     phrase_active->reason == ActiveCoroutineInfo::YieldReason::WaitPhrase &&
+                     phrase_active->accepted_grammar.find("integer_slot") != std::string::npos,
+                     "phrase wait grammar was not exposed")) return EXIT_FAILURE;
     actions = engine.handle_event(Event::transcript_event("set 42"), error);
     if (!expect_true(error.empty(), "phrase wait completion failed: " + error) ||
         !expect_equal(actions.size(), std::size_t{1}, "phrase wait completion action count") ||
@@ -210,5 +234,11 @@ register_handler {
     actions = engine.handle_event(Event::transcript_event("after error"), error);
     if (!expect_true(error.empty(), "engine unusable after handler error: " + error) ||
         !expect_equal(actions.size(), std::size_t{1}, "post-error action count")) return EXIT_FAILURE;
+
+    actions = engine.handle_event(Event::transcript_event("timed"), error);
+    if (!expect_true(error.empty() && engine.active_coroutine().has_value(),
+                     "timed handler did not become active before reload")) return EXIT_FAILURE;
+    if (!expect_true(engine.load_from_lua_text(coroutine_lua, error), "reload after active handler failed: " + error) ||
+        !expect_true(!engine.active_coroutine().has_value(), "reload did not clear active handler inspection")) return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }

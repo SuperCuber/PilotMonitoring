@@ -28,6 +28,7 @@ struct ExecutionEngine::Impl {
     struct ActiveCoroutine {
         lua_State* thread = nullptr;
         int thread_ref = LUA_NOREF;
+        std::string command_id;
         Suspension suspension = Suspension::None;
         double remaining_ms = 0.0;
         int condition_ref = LUA_NOREF;
@@ -128,6 +129,22 @@ std::string grammar_for(const std::vector<Handler>& handlers) {
         phrases.insert(phrases.end(), handler.phrases.begin(), handler.phrases.end());
     }
     return grammar_for_phrases(phrases, true);
+}
+
+std::string trigger_text(const std::vector<Part>& parts) {
+    std::ostringstream output;
+    bool first = true;
+    for (const auto& part : parts) {
+        if (!first) output << ' ';
+        first = false;
+        if (part.type == Part::Type::Literal) {
+            output << part.text;
+        } else {
+            output << '<' << part.name << ':'
+                   << (part.type == Part::Type::Integer ? "integer" : "float") << '>';
+        }
+    }
+    return output.str();
 }
 
 bool integer_text(std::string_view text, std::string& value) {
@@ -577,6 +594,45 @@ ExecutionEngine::~ExecutionEngine() {
     }
 }
 
+std::vector<CommandInfo> ExecutionEngine::commands() const {
+    std::vector<CommandInfo> result;
+    result.reserve(impl_->handlers.size());
+    for (const auto& handler : impl_->handlers) {
+        CommandInfo info;
+        info.id = handler.id;
+        for (const auto& phrase : handler.phrases) {
+            info.triggers.push_back(trigger_text(phrase));
+        }
+        result.push_back(std::move(info));
+    }
+    return result;
+}
+
+std::optional<ActiveCoroutineInfo> ExecutionEngine::active_coroutine() const {
+    if (!impl_->active || impl_->active->suspension == Impl::Suspension::None) {
+        return std::nullopt;
+    }
+    const auto& active = *impl_->active;
+    ActiveCoroutineInfo info;
+    info.command_id = active.command_id;
+    info.remaining_ms = active.remaining_ms;
+    switch (active.suspension) {
+    case Impl::Suspension::WaitMs:
+        info.reason = ActiveCoroutineInfo::YieldReason::WaitMs;
+        break;
+    case Impl::Suspension::WaitUntil:
+        info.reason = ActiveCoroutineInfo::YieldReason::WaitUntil;
+        break;
+    case Impl::Suspension::WaitPhrase:
+        info.reason = ActiveCoroutineInfo::YieldReason::WaitPhrase;
+        info.accepted_grammar = grammar_text_;
+        break;
+    case Impl::Suspension::None:
+        break;
+    }
+    return info;
+}
+
 bool ExecutionEngine::load_from_file(
     const std::filesystem::path& path,
     std::string& error) {
@@ -605,6 +661,7 @@ bool ExecutionEngine::load_from_lua_text(std::string_view source, std::string& e
     failed_ = false;
     impl_->handlers.clear();
     grammar_text_.clear();
+    top_level_grammar_text_.clear();
     grammar_ = {};
 
     if (luaL_loadbuffer(impl_->lua, source.data(), source.size(), "commands.lua") != LUA_OK ||
@@ -615,7 +672,8 @@ bool ExecutionEngine::load_from_lua_text(std::string_view source, std::string& e
         return false;
     }
 
-    grammar_text_ = grammar_for(impl_->handlers);
+    top_level_grammar_text_ = grammar_for(impl_->handlers);
+    grammar_text_ = top_level_grammar_text_;
     grammar_ = grammar_parser::parse(grammar_text_.c_str());
     if (grammar_.rules.empty()) {
         error = "Lua config registered no valid grammar";
@@ -633,7 +691,7 @@ void ExecutionEngine::clear_active() {
     luaL_unref(impl_->lua, LUA_REGISTRYINDEX, impl_->active->thread_ref);
     impl_->active.reset();
 
-    grammar_text_ = grammar_for(impl_->handlers);
+    grammar_text_ = top_level_grammar_text_;
     grammar_ = grammar_parser::parse(grammar_text_.c_str());
 }
 
@@ -743,6 +801,7 @@ std::vector<Action> ExecutionEngine::handle_event(const Event& event, std::strin
                 impl_->active = std::make_unique<Impl::ActiveCoroutine>();
                 impl_->active->thread = lua_newthread(impl_->lua);
                 impl_->active->thread_ref = luaL_ref(impl_->lua, LUA_REGISTRYINDEX);
+                impl_->active->command_id = handler.id;
                 lua_rawgeti(impl_->active->thread, LUA_REGISTRYINDEX, handler.function_ref);
                 lua_createtable(impl_->active->thread, 0, static_cast<int>(values.size()));
 

@@ -48,6 +48,7 @@ target_include_directories(pilotmonitoring_core PUBLIC
 target_link_libraries(pilotmonitoring_core PUBLIC lua54)
 
 add_library(PilotMonitoring SHARED
+    src/control_panel.cpp
     src/plugin_main.cpp
     src/voice_service.cpp
 )
@@ -66,6 +67,7 @@ target_compile_definitions(PilotMonitoring PRIVATE
     XPLM200=1
     XPLM210=1
     XPLM300=1
+    XPLM301=1
     XPLM400=1
     XPLM420=1
     XPLM430=1
@@ -75,6 +77,7 @@ target_link_libraries(PilotMonitoring PRIVATE
     pilotmonitoring_core
     whisper
     "${XP_SDK_DIR}/Libraries/Win/XPLM_64.lib"
+    opengl32
     ole32
     uuid
 )

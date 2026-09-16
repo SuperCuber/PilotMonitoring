@@ -1,4 +1,4 @@
-Pilot Monitoring
+PilotMonitoring
 ================
 
 Install this folder into X-Plane's Resources/plugins directory.

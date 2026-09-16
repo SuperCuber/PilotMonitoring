@@ -1,4 +1,4 @@
-# Pilot Monitoring
+# PilotMonitoring
 
 Windows X-Plane plugin scaffold linked with the X-Plane SDK and whisper.cpp.
 
@@ -69,7 +69,7 @@ build\package\PilotMonitoring\win_x64\PilotMonitoring.xpl
 
 The package includes one Lua command file per supported aircraft, named after
 its ICAO code (for example, `resources/C172.lua`). At plugin enable time,
-Pilot Monitoring reads `sim/aircraft/view/acf_ICAO` and loads the matching Lua
+PilotMonitoring reads `sim/aircraft/view/acf_ICAO` and loads the matching Lua
 file to register handlers, generate the Whisper grammar, and run the stateful
 command engine at runtime.
 

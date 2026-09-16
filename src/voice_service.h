@@ -27,6 +27,7 @@ public:
 
     void start();
     void set_listening(bool active);
+    [[nodiscard]] bool is_listening() const { return listening_.load(); }
     void set_grammar(grammar_parser::parse_state grammar);
     void stop();
     std::optional<Result> pop_result();

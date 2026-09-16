@@ -45,6 +45,20 @@ struct Event {
     static Event tick_event(float delta);
 };
 
+struct CommandInfo {
+    std::string id;
+    std::vector<std::string> triggers;
+};
+
+struct ActiveCoroutineInfo {
+    enum class YieldReason { WaitMs, WaitUntil, WaitPhrase };
+
+    std::string command_id;
+    YieldReason reason = YieldReason::WaitMs;
+    double remaining_ms = 0.0;
+    std::string accepted_grammar;
+};
+
 class ExecutionEngine {
 public:
     struct Impl;
@@ -61,9 +75,12 @@ public:
     std::vector<Action> handle_event(const Event& event, std::string& error);
 
     [[nodiscard]] const std::string& grammar_text() const { return grammar_text_; }
+    [[nodiscard]] const std::string& top_level_grammar_text() const { return top_level_grammar_text_; }
     [[nodiscard]] const grammar_parser::parse_state& grammar() const { return grammar_; }
     [[nodiscard]] bool failed() const { return failed_; }
     [[nodiscard]] DatarefHost* dataref_host() const { return dataref_host_; }
+    [[nodiscard]] std::vector<CommandInfo> commands() const;
+    [[nodiscard]] std::optional<ActiveCoroutineInfo> active_coroutine() const;
     void set_active_grammar(std::string text, grammar_parser::parse_state grammar);
 
 private:
@@ -73,6 +90,7 @@ private:
     std::unique_ptr<Impl> impl_;
     DatarefHost* dataref_host_ = nullptr;
     std::string grammar_text_;
+    std::string top_level_grammar_text_;
     grammar_parser::parse_state grammar_;
     bool failed_ = false;
 };
