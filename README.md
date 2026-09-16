@@ -42,8 +42,8 @@ cmake -B build
 # Build the Release plugin package.
 cmake --build build --config Release --target PilotMonitoring
 
-# Build and run all tests.
-cmake --build build --config Release && ctest --test-dir build -C Release --output-on-failure
+# Build all test binaries and run all tests.
+cmake --build build --config Release --target lua_engine_tests c172_tests && ctest --test-dir build -C Release --output-on-failure
 
 # Once: link the build package into X-Plane (replace the X-Plane path first).
 New-Item -ItemType SymbolicLink `
@@ -60,16 +60,19 @@ The finished plugin is at:
 build\package\PilotMonitoring\win_x64\PilotMonitoring.xpl
 ```
 
-The package also includes `resources/commands.lua`, which is loaded at plugin
-startup to register handlers, generate the Whisper grammar, and run the
-stateful command engine at runtime.
+The package includes one Lua command file per supported aircraft, named after
+its ICAO code (for example, `resources/C172.lua`). At plugin enable time,
+Pilot Monitoring reads `sim/aircraft/view/acf_ICAO` and loads the matching Lua
+file to register handlers, generate the Whisper grammar, and run the stateful
+command engine at runtime.
 
-If CMake/MSBuild cannot write to `C:\Temp`, use a project-local temporary
-directory for that command:
+If CMake/MSBuild cannot write to `C:\Temp`, set a project-local temporary
+directory before configuring or building:
 
 ```powershell
 New-Item -ItemType Directory -Force build\tmp | Out-Null
 $env:TEMP = (Resolve-Path build\tmp)
 $env:TMP = $env:TEMP
 cmake -B build
+cmake --build build --config Release --target PilotMonitoring
 ```

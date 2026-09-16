@@ -12,6 +12,8 @@ set(XP_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/XPSDK430/SDK")
 
 file(GLOB LUA_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/libs/lua-5.4.7/src/*.c")
 list(FILTER LUA_SOURCES EXCLUDE REGEX "/lua\.c$|/luac\.c$")
+file(GLOB AIRCRAFT_COMMAND_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/*.lua")
 add_library(lua54 STATIC ${LUA_SOURCES})
 target_include_directories(lua54 PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/lua-5.4.7/src")
 
@@ -93,32 +95,38 @@ add_custom_command(TARGET PilotMonitoring POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/README.txt"
         "${CMAKE_BINARY_DIR}/package/PilotMonitoring/README.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/resources/commands.lua"
-        "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/commands.lua"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/libs/whisper.cpp/models/ggml-tiny.en.bin"
         "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/models/ggml-tiny.en.bin"
     COMMENT "Adding plugin documentation to the package"
 )
 
+foreach (aircraft_commands ${AIRCRAFT_COMMAND_FILES})
+    get_filename_component(aircraft_filename "${aircraft_commands}" NAME)
+    add_custom_command(TARGET PilotMonitoring POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${aircraft_commands}"
+            "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/${aircraft_filename}"
+    )
+endforeach()
+
 if (BUILD_TESTING)
     add_executable(lua_engine_tests
         tests/lua_engine_tests.cpp
     )
-    add_executable(actual_config_tests
-        tests/actual_config_tests.cpp
+    add_executable(c172_tests
+        tests/c172_tests.cpp
     )
 
     target_link_libraries(lua_engine_tests PRIVATE
         pilotmonitoring_core
     )
-    target_link_libraries(actual_config_tests PRIVATE
+    target_link_libraries(c172_tests PRIVATE
         pilotmonitoring_core
     )
 
     add_test(NAME lua_engine_tests COMMAND lua_engine_tests)
-    add_test(NAME actual_config_tests COMMAND actual_config_tests)
-    set_tests_properties(lua_engine_tests actual_config_tests PROPERTIES
+    add_test(NAME c172_tests COMMAND c172_tests)
+    set_tests_properties(lua_engine_tests c172_tests PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     )
 endif()

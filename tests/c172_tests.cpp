@@ -8,7 +8,7 @@ int main() {
     FakeHost host;
     ExecutionEngine engine(&host);
     std::string error;
-    if (!expect_true(engine.load_from_file("resources/commands.lua", error), "actual config failed: " + error)) return EXIT_FAILURE;
+    if (!expect_true(engine.load_from_file("resources/C172.lua", error), "C172 config failed: " + error)) return EXIT_FAILURE;
 
     auto actions = engine.handle_event(Event::transcript_event("contact 123.450"), error);
     if (!expect_true(error.empty(), "actual contact failed: " + error) ||

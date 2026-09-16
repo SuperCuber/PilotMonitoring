@@ -1,3 +1,4 @@
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -65,8 +66,43 @@ std::filesystem::path model_path() {
     return plugin_resources_path() / "models" / "ggml-tiny.en.bin";
 }
 
-std::filesystem::path commands_path() {
-    return plugin_resources_path() / "commands.lua";
+std::filesystem::path aircraft_commands_path(std::string& error) {
+    constexpr std::string_view kAircraftDataref = "sim/aircraft/view/acf_ICAO";
+    const XPLMDataRef ref = XPLMFindDataRef(std::string(kAircraftDataref).c_str());
+    if (ref == nullptr) {
+        error = "aircraft ICAO dataref unavailable: " + std::string(kAircraftDataref);
+        return {};
+    }
+
+    const int size = XPLMGetDatab(ref, nullptr, 0, 0);
+    if (size <= 0) {
+        error = "aircraft ICAO dataref is empty";
+        return {};
+    }
+
+    std::string icao(static_cast<std::size_t>(size), '\0');
+    const int bytes_read = XPLMGetDatab(ref, icao.data(), 0, size);
+    if (bytes_read <= 0) {
+        error = "could not read aircraft ICAO dataref";
+        return {};
+    }
+    icao.resize(static_cast<std::size_t>(bytes_read));
+    while (!icao.empty() &&
+           (icao.back() == '\0' || std::isspace(static_cast<unsigned char>(icao.back())))) {
+        icao.pop_back();
+    }
+    if (icao.empty()) {
+        error = "aircraft ICAO dataref is empty";
+        return {};
+    }
+    for (char& character : icao) {
+        character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+        if (!std::isalnum(static_cast<unsigned char>(character))) {
+            error = "invalid aircraft ICAO: " + icao;
+            return {};
+        }
+    }
+    return plugin_resources_path() / (icao + ".lua");
 }
 
 void log_grammar(std::string_view grammar_text) {
@@ -226,11 +262,12 @@ PLUGIN_API int XPluginEnable() {
     auto engine = std::make_unique<ExecutionEngine>(&g_dataref_host, [](std::string_view message) {
         log_line("Pilot Monitoring: " + std::string(message));
     });
-    if (engine->load_from_file(commands_path(), error_message)) {
+    const auto commands = aircraft_commands_path(error_message);
+    if (!commands.empty() && engine->load_from_file(commands, error_message)) {
         g_execution_engine = std::move(engine);
         log_grammar(g_execution_engine->grammar_text());
     } else {
-        log_message("Pilot Monitoring: failed to load commands.\n");
+        log_message("Pilot Monitoring: failed to load aircraft commands.\n");
         log_line(error_message);
         g_execution_engine.reset();
     }
