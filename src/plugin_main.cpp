@@ -2,16 +2,19 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 #include "XPLMDataAccess.h"
 #include "XPLMMenus.h"
 #include "XPLMPlugin.h"
 #include "XPLMProcessing.h"
+#include "XPLMSound.h"
 #include "XPLMUtilities.h"
 #include "whisper.h"
 
@@ -108,6 +111,95 @@ std::filesystem::path aircraft_commands_path(std::string& error) {
     return plugin_resources_path() / (icao + ".lua");
 }
 
+struct PcmSound {
+    std::vector<std::uint8_t> samples;
+    int sample_rate = 0;
+    int channels = 0;
+};
+
+std::uint16_t read_u16(const std::uint8_t* data) {
+    return static_cast<std::uint16_t>(data[0]) |
+           (static_cast<std::uint16_t>(data[1]) << 8);
+}
+
+std::uint32_t read_u32(const std::uint8_t* data) {
+    return static_cast<std::uint32_t>(data[0]) |
+           (static_cast<std::uint32_t>(data[1]) << 8) |
+           (static_cast<std::uint32_t>(data[2]) << 16) |
+           (static_cast<std::uint32_t>(data[3]) << 24);
+}
+
+std::optional<PcmSound> load_pcm_wav(const std::filesystem::path& path, std::string& error) {
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file) { error = "could not open sound file: " + path.string(); return std::nullopt; }
+    const auto file_size = file.tellg();
+    if (file_size < 12) { error = "sound file is too small: " + path.string(); return std::nullopt; }
+    file.seekg(0);
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(file_size));
+    file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    if (!file) { error = "could not read sound file: " + path.string(); return std::nullopt; }
+    if (std::memcmp(bytes.data(), "RIFF", 4) != 0 || std::memcmp(bytes.data() + 8, "WAVE", 4) != 0) {
+        error = "sound file is not a RIFF/WAVE file: " + path.string(); return std::nullopt;
+    }
+
+    std::size_t offset = 12;
+    int format = 0;
+    int channels = 0;
+    int sample_rate = 0;
+    std::vector<std::uint8_t> samples;
+    while (offset + 8 <= bytes.size()) {
+        const auto* chunk = bytes.data() + offset;
+        const std::size_t chunk_size = read_u32(chunk + 4);
+        offset += 8;
+        if (chunk_size > bytes.size() - offset) {
+            error = "sound file contains an invalid chunk: " + path.string(); return std::nullopt;
+        }
+        if (std::memcmp(chunk, "fmt ", 4) == 0 && chunk_size >= 16) {
+            format = read_u16(bytes.data() + offset);
+            channels = read_u16(bytes.data() + offset + 2);
+            sample_rate = static_cast<int>(read_u32(bytes.data() + offset + 4));
+            const int bits_per_sample = read_u16(bytes.data() + offset + 14);
+            if (format != 1 || bits_per_sample != 16 || channels <= 0 || sample_rate <= 0) {
+                error = "sound must be uncompressed 16-bit PCM: " + path.string(); return std::nullopt;
+            }
+        } else if (std::memcmp(chunk, "data", 4) == 0) {
+            samples.assign(bytes.begin() + static_cast<std::ptrdiff_t>(offset),
+                           bytes.begin() + static_cast<std::ptrdiff_t>(offset + chunk_size));
+        }
+        offset += chunk_size + (chunk_size & 1U);
+    }
+    if (format != 1 || channels <= 0 || sample_rate <= 0 || samples.empty()) {
+        error = "sound file is missing valid PCM audio data: " + path.string(); return std::nullopt;
+    }
+    return PcmSound{std::move(samples), sample_rate, channels};
+}
+
+void release_pcm_sound(void* refcon, FMOD_RESULT) {
+    delete static_cast<PcmSound*>(refcon);
+}
+
+bool valid_sound_filename(std::string_view filename) {
+    if (filename.empty()) return false;
+    for (const unsigned char character : filename) {
+        if (!std::isalnum(character) && character != '_') return false;
+    }
+    return true;
+}
+
+void play_sound(const PlaySoundAction& action) {
+    if (!valid_sound_filename(action.filename)) {
+        log_line("Pilot Monitoring: invalid sound filename: " + action.filename);
+        return;
+    }
+    std::string error;
+    auto sound = load_pcm_wav(plugin_resources_path() / "audio" / (action.filename + ".wav"), error);
+    if (!sound) { log_line("Pilot Monitoring: " + error); return; }
+    auto* sound_data = new PcmSound(std::move(*sound));
+    XPLMPlayPCMOnBus(sound_data->samples.data(), static_cast<std::uint32_t>(sound_data->samples.size()),
+                     FMOD_SOUND_FORMAT_PCM16, sound_data->sample_rate, sound_data->channels, 0,
+                     xplm_AudioUI, release_pcm_sound, sound_data);
+}
+
 void log_grammar(std::string_view grammar_text) {
     log_message("Pilot Monitoring: generated grammar:\n");
 
@@ -152,6 +244,9 @@ void execute_action(const Action& action) {
             return;
         } else if constexpr (std::is_same_v<T, SpeakAction>) {
             XPLMSpeakString(value.message.c_str());
+            return;
+        } else if constexpr (std::is_same_v<T, PlaySoundAction>) {
+            play_sound(value);
             return;
         } else {
         const std::string& dataref_name = value.dataref;

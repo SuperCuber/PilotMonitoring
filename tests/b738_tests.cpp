@@ -30,14 +30,18 @@ bool flap_test() {
     host.floats["sim/cockpit2/gauges/indicators/airspeed_kts_pilot"] = 180.0F;
     auto actions = engine.handle_event(Event::transcript_event("flaps 5"), error);
     if (!expect_true(error.empty(), "safe flap failed") || !expect_equal(actions.size(), std::size_t{2}, "safe flap actions")) return false;
-    if (!expect_equal(std::get<TriggerCommandAction>(actions[0]).command, std::string{"laminar/B738/push_button/flaps_5"}, "flap command")) return false;
+    if (!expect_equal(std::get<SpeakAction>(actions[0]).message, std::string{"speed checked, flaps 5"}, "safe flap readback") ||
+        !expect_equal(std::get<TriggerCommandAction>(actions[1]).command, std::string{"laminar/B738/push_button/flaps_5"}, "flap command")) return false;
     host.floats["sim/cockpit2/gauges/indicators/airspeed_kts_pilot"] = 251.0F;
     actions = engine.handle_event(Event::transcript_event("flaps 5"), error);
     if (!expect_true(error.empty(), "unsafe flap errored") || !expect_equal(actions.size(), std::size_t{1}, "unsafe flap actions")) return false;
     if (!expect_equal(std::get<SpeakAction>(actions[0]).message, std::string{"unable, speed too high"}, "unsafe flap warning")) return false;
     host.floats["sim/cockpit2/gauges/indicators/airspeed_kts_pilot"] = 169.0F;
     actions = engine.handle_event(Event::transcript_event("flaps 5"), error);
-    return expect_true(error.empty() && actions.size() == 1 && std::get<SpeakAction>(actions[0]).message == "unable, speed too high", "low flap speed handling");
+    if (!expect_true(error.empty() && actions.size() == 1 && std::get<SpeakAction>(actions[0]).message == "unable, speed too low", "low flap speed handling")) return false;
+    host.floats.erase("sim/cockpit2/gauges/indicators/airspeed_kts_pilot");
+    actions = engine.handle_event(Event::transcript_event("flaps 5"), error);
+    return expect_true(error.empty() && actions.size() == 1 && std::get<SpeakAction>(actions[0]).message == "unable, speed unavailable", "missing airspeed handling");
 }
 
 bool references_test() {

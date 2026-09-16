@@ -14,6 +14,8 @@ file(GLOB LUA_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/libs/lua-5.
 list(FILTER LUA_SOURCES EXCLUDE REGEX "/lua\.c$|/luac\.c$")
 file(GLOB AIRCRAFT_COMMAND_FILES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/resources/*.lua")
+file(GLOB AUDIO_RESOURCE_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/audio/*.wav")
 add_library(lua54 STATIC ${LUA_SOURCES})
 target_include_directories(lua54 PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/lua-5.4.7/src")
 
@@ -107,6 +109,17 @@ foreach (aircraft_commands ${AIRCRAFT_COMMAND_FILES})
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${aircraft_commands}"
             "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/${aircraft_filename}"
+    )
+endforeach()
+
+foreach (audio_resource ${AUDIO_RESOURCE_FILES})
+    get_filename_component(audio_filename "${audio_resource}" NAME)
+    add_custom_command(TARGET PilotMonitoring POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/audio"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${audio_resource}"
+            "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/audio/${audio_filename}"
     )
 endforeach()
 

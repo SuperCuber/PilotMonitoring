@@ -15,12 +15,20 @@ end
 local function flap_handler(detent, command, minimum_speed, maximum_speed)
     return function(_)
         local airspeed = get_dataref_float("sim/cockpit2/gauges/indicators/airspeed_kts_pilot")
-        if airspeed == nil or airspeed < minimum_speed or airspeed > maximum_speed then
+        if airspeed == nil then
+            say("unable, speed unavailable")
+            return
+        end
+        if airspeed < minimum_speed then
+            say("unable, speed too low")
+            return
+        end
+        if airspeed > maximum_speed then
             say("unable, speed too high")
             return
         end
+        say("speed checked, flaps " .. detent)
         trigger_command(command)
-        say("flaps " .. detent)
     end
 end
 

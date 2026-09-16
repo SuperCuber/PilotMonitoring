@@ -22,6 +22,7 @@ struct DatarefHost {
 
 struct TriggerCommandAction { std::string command; };
 struct SpeakAction { std::string message; };
+struct PlaySoundAction { std::string filename; };
 struct SetIntegerDatarefAction { std::string dataref; int value = 0; };
 struct SetFloatDatarefAction { std::string dataref; float value = 0.0F; };
 struct SetBooleanDatarefAction { std::string dataref; bool value = false; };
@@ -29,6 +30,7 @@ struct SetBooleanDatarefAction { std::string dataref; bool value = false; };
 using Action = std::variant<
     TriggerCommandAction,
     SpeakAction,
+    PlaySoundAction,
     SetIntegerDatarefAction,
     SetFloatDatarefAction,
     SetBooleanDatarefAction>;

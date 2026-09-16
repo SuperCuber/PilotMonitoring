@@ -249,6 +249,25 @@ int say(lua_State* lua) {
     return 0;
 }
 
+bool valid_sound_filename(std::string_view filename) {
+    if (filename.empty()) return false;
+    for (const unsigned char character : filename) {
+        if (!std::isalnum(character) && character != '_') return false;
+    }
+    return true;
+}
+
+int play_sound(lua_State* lua) {
+    auto* context_value = context(lua);
+    const char* filename = luaL_checkstring(lua, 1);
+    if (!valid_sound_filename(filename)) {
+        return luaL_error(lua, "play_sound filename must contain only letters, numbers, and underscores");
+    }
+    log_lua_call(context_value, "play_sound(\"" + escape(filename) + "\")");
+    context_value->actions.emplace_back(PlaySoundAction{filename});
+    return 0;
+}
+
 int set_integer(lua_State* lua) {
     auto* context_value = context(lua);
     const char* dataref = luaL_checkstring(lua, 1);
@@ -507,6 +526,7 @@ void install_api(lua_State* lua) {
     lua_pushcfunction(lua, register_handler); lua_setglobal(lua, "register_handler");
     lua_pushcfunction(lua, slot_function); lua_setglobal(lua, "slot");
     lua_pushcfunction(lua, say); lua_setglobal(lua, "say");
+    lua_pushcfunction(lua, play_sound); lua_setglobal(lua, "play_sound");
     lua_pushcfunction(lua, trigger_command); lua_setglobal(lua, "trigger_command");
     lua_pushcfunction(lua, set_integer); lua_setglobal(lua, "set_dataref_integer");
     lua_pushcfunction(lua, set_float); lua_setglobal(lua, "set_dataref_float");

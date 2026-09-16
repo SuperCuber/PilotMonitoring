@@ -78,6 +78,29 @@ register_handler {
     if (!expect_true(speech != nullptr, "say action type") ||
         !expect_equal(speech->message, std::string{"checklist complete"}, "say action message")) return EXIT_FAILURE;
 
+    const std::string sound_lua = R"lua(
+register_handler {
+    id = "sound",
+    phrases = { { "sound" } },
+    handler = function(_) play_sound("positive_beep") end,
+}
+)lua";
+    if (!expect_true(engine.load_from_lua_text(sound_lua, error), "sound Lua failed: " + error)) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::transcript_event("sound"), error);
+    if (!expect_true(error.empty() && actions.size() == 1, "sound action count")) return EXIT_FAILURE;
+    const auto* sound = std::get_if<PlaySoundAction>(&actions[0]);
+    if (!expect_true(sound != nullptr, "sound action type") ||
+        !expect_equal(sound->filename, std::string{"positive_beep"}, "sound filename")) return EXIT_FAILURE;
+
+    const std::string invalid_sound_lua = R"lua(
+register_handler {
+    id = "invalid_sound",
+    phrases = { { "invalid sound" } },
+    handler = function(_) play_sound("../positive_beep") end,
+}
+)lua";
+    if (!expect_true(!engine.load_from_lua_text(invalid_sound_lua, error), "invalid sound filename accepted")) return EXIT_FAILURE;
+
     const std::string coroutine_lua = R"lua(
 register_handler {
     id = "timed",
