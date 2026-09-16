@@ -49,6 +49,9 @@ ctest --test-dir build -C Release --output-on-failure
 # Run only one aircraft handler test.
 ctest --test-dir build -C Release -R "^aircraft\.C172\.tune_radio$" --output-on-failure
 
+# Run the C172 handler tests directly: no arguments runs all; a list selects tests.
+build\Release\c172_tests.exe tune_radio lineup_checklist
+
 # Once: link the build package into X-Plane (replace the X-Plane path first).
 New-Item -ItemType SymbolicLink `
     -Path 'C:\X-Plane 12\Resources\plugins\PilotMonitoring' `
@@ -79,4 +82,5 @@ $env:TEMP = (Resolve-Path build\tmp)
 $env:TMP = $env:TEMP
 cmake -B build
 cmake --build build --config Release --target PilotMonitoring
+cmake --build build --config Release --target lua_engine_tests c172_tests
 ```
