@@ -769,6 +769,7 @@ std::vector<Action> ExecutionEngine::handle_event(const Event& event, std::strin
             }
 
             if (!matched && error.empty() && impl_->active) {
+                impl_->actions.emplace_back(PlaySoundAction{"negative_beep"});
                 lua_pushnil(impl_->active->thread);
                 lua_pushliteral(impl_->active->thread,
                                 "phrase wait did not match the transcript");
@@ -824,6 +825,9 @@ std::vector<Action> ExecutionEngine::handle_event(const Event& event, std::strin
             if (matched) break;
         }
 
+        if (!matched) {
+            impl_->actions.emplace_back(PlaySoundAction{"negative_beep"});
+        }
         if (!error.empty() || (matched && impl_->active) || comma == std::string::npos) break;
         command_start = comma + 1;
     }

@@ -304,6 +304,21 @@ float process_voice_results(float, float, int, void*) {
     while (const auto result = g_voice_service->pop_result()) {
         if (!result->recognized) {
             log_line(result->text);
+            if (result->text == "no speech was recognized") {
+                std::vector<Action> actions;
+                std::string error;
+                const auto active = g_execution_engine
+                                        ? g_execution_engine->active_coroutine()
+                                        : std::nullopt;
+                if (active && active->reason == ActiveCoroutineInfo::YieldReason::WaitPhrase) {
+                    actions = g_execution_engine->handle_event(Event::transcript_event(""), error);
+                    g_voice_service->set_grammar(g_execution_engine->grammar());
+                } else {
+                    actions.emplace_back(PlaySoundAction{"negative_beep"});
+                }
+                for (const auto& action : actions) execute_action(action);
+                if (!error.empty()) log_line("script error: " + error);
+            }
             continue;
         }
 
@@ -316,8 +331,8 @@ float process_voice_results(float, float, int, void*) {
         std::string error;
         const auto actions = g_execution_engine->handle_event(Event::transcript_event(result->text), error);
         g_voice_service->set_grammar(g_execution_engine->grammar());
-        if (!error.empty()) { log_line("script error: " + error); continue; }
         for (const auto& action : actions) execute_action(action);
+        if (!error.empty()) log_line("script error: " + error);
     }
     if (g_execution_engine) {
         std::string error;

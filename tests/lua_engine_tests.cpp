@@ -99,6 +99,12 @@ register_handler {
     const auto* sound = std::get_if<PlaySoundAction>(&actions[0]);
     if (!expect_true(sound != nullptr, "sound action type") ||
         !expect_equal(sound->filename, std::string{"positive_beep"}, "sound filename")) return EXIT_FAILURE;
+    actions = engine.handle_event(Event::transcript_event("not a command"), error);
+    const auto* negative_sound = actions.size() == 1 ? std::get_if<PlaySoundAction>(&actions[0]) : nullptr;
+    if (!expect_true(error.empty(), "unrecognized command failed: " + error) ||
+        !expect_true(negative_sound != nullptr, "unrecognized command did not play a sound") ||
+        !expect_equal(negative_sound->filename, std::string{"negative_beep"},
+                      "unrecognized command sound filename")) return EXIT_FAILURE;
 
     const std::string invalid_sound_lua = R"lua(
 register_handler {
@@ -107,7 +113,8 @@ register_handler {
     handler = function(_) play_sound("../positive_beep") end,
 }
 )lua";
-    if (!expect_true(!engine.load_from_lua_text(invalid_sound_lua, error), "invalid sound filename accepted")) return EXIT_FAILURE;
+    if (!expect_true(engine.load_from_lua_text(invalid_sound_lua, error),
+                     "invalid sound Lua failed to load: " + error)) return EXIT_FAILURE;
 
     const std::string coroutine_lua = R"lua(
 register_handler {
@@ -223,12 +230,18 @@ register_handler {
     if (!expect_true(error.empty(), "caught wait start failed: " + error)) return EXIT_FAILURE;
     actions = engine.handle_event(Event::transcript_event("no"), error);
     if (!expect_true(error.empty(), "caught wait should be recoverable: " + error) ||
-        !expect_equal(actions.size(), std::size_t{1}, "caught wait action count")) return EXIT_FAILURE;
+        !expect_equal(actions.size(), std::size_t{2}, "caught wait action count") ||
+        !expect_true(std::get_if<PlaySoundAction>(&actions[0]) != nullptr,
+                     "caught wait did not play the negative beep")) return EXIT_FAILURE;
 
     actions = engine.handle_event(Event::transcript_event("unhandled"), error);
     if (!expect_true(error.empty(), "unhandled wait start failed: " + error)) return EXIT_FAILURE;
-    actions = engine.handle_event(Event::transcript_event("no"), error);
-    if (!expect_true(!error.empty(), "unhandled wait did not report an error") ||
+    actions = engine.handle_event(Event::transcript_event(""), error);
+    negative_sound = actions.size() == 1 ? std::get_if<PlaySoundAction>(&actions[0]) : nullptr;
+    if (!expect_true(!error.empty(), "empty transcription did not fail the unhandled wait") ||
+        !expect_true(negative_sound != nullptr, "empty transcription did not play a sound") ||
+        !expect_equal(negative_sound->filename, std::string{"negative_beep"},
+                      "empty transcription sound filename") ||
         !expect_true(engine.grammar_text().find("phrase") != std::string::npos,
                      "grammar was not restored after error")) return EXIT_FAILURE;
     actions = engine.handle_event(Event::transcript_event("after error"), error);
