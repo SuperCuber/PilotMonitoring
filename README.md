@@ -53,9 +53,7 @@ ctest --test-dir build -C Release -R "^aircraft\.C172\.tune_radio$" --output-on-
 build\Release\c172_tests.exe tune_radio lineup_checklist
 
 # Once: link the build package into X-Plane (replace the X-Plane path first).
-New-Item -ItemType SymbolicLink `
-    -Path 'C:\X-Plane 12\Resources\plugins\PilotMonitoring' `
-    -Target (Resolve-Path build\package\PilotMonitoring)
+New-Item -ItemType SymbolicLink -Path 'C:\X-Plane 12\Resources\plugins\PilotMonitoring' -Target (Resolve-Path build\package\PilotMonitoring)
 ```
 
 The symlink is a one-time setup. Afterward, run only the build command; the

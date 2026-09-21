@@ -8,6 +8,8 @@
 
 #include <audioclient.h>
 #include <mmdeviceapi.h>
+#include <propkey.h>
+#include <functiondiscoverykeys_devpkey.h>
 #include <wrl/client.h>
 
 #include "grammar-parser.h"
@@ -16,6 +18,26 @@
 namespace {
 
 using Microsoft::WRL::ComPtr;
+
+std::string utf8_from_wide(const wchar_t* value) {
+    if (value == nullptr || *value == L'\0') return {};
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 1) return {};
+    std::string result(static_cast<std::size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value, -1, result.data(), size, nullptr, nullptr);
+    result.resize(static_cast<std::size_t>(size - 1));
+    return result;
+}
+
+std::wstring wide_from_utf8(const std::string& value) {
+    if (value.empty()) return {};
+    const int size = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, nullptr, 0);
+    if (size <= 1) return {};
+    std::wstring result(static_cast<std::size_t>(size), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, result.data(), size);
+    result.resize(static_cast<std::size_t>(size - 1));
+    return result;
+}
 
 bool is_float_format(const WAVEFORMATEX& format) {
     if (format.wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
@@ -95,6 +117,7 @@ void VoiceService::start() {
     if (running_.exchange(true)) {
         return;
     }
+    refresh_input_devices();
     worker_ = std::thread(&VoiceService::worker_main, this);
 }
 
@@ -106,6 +129,95 @@ void VoiceService::set_listening(bool active) {
     }
     wake_cv_.notify_all();
     samples_cv_.notify_all();
+}
+
+std::string VoiceService::listening_status() const {
+    std::lock_guard lock(device_mutex_);
+    if (input_device_disconnected_) return "device disconnected";
+    return listening_.load() ? "yes" : "no";
+}
+
+std::vector<VoiceService::InputDevice> VoiceService::input_devices() const {
+    std::lock_guard lock(device_mutex_);
+    return input_devices_;
+}
+
+std::string VoiceService::selected_input_device_id() const {
+    std::lock_guard lock(device_mutex_);
+    return selected_input_device_id_;
+}
+
+bool VoiceService::input_device_disconnected() const {
+    std::lock_guard lock(device_mutex_);
+    return input_device_disconnected_;
+}
+
+void VoiceService::refresh_input_devices() {
+    const auto devices = enumerate_input_devices();
+    std::lock_guard lock(device_mutex_);
+    input_devices_ = devices;
+    if (selected_input_device_id_.empty()) return;
+    const auto found = std::find_if(
+        input_devices_.begin(), input_devices_.end(),
+        [this](const InputDevice& device) { return device.id == selected_input_device_id_; });
+    if (found == input_devices_.end()) input_device_disconnected_ = true;
+}
+
+void VoiceService::set_input_device(std::string id) {
+    bool changed = false;
+    {
+        std::lock_guard lock(device_mutex_);
+        changed = selected_input_device_id_ != id;
+        selected_input_device_id_ = std::move(id);
+        if (changed) input_device_disconnected_ = false;
+    }
+    if (changed && listening_.exchange(false)) {
+        wake_cv_.notify_all();
+        samples_cv_.notify_all();
+    }
+}
+
+std::vector<VoiceService::InputDevice> VoiceService::enumerate_input_devices() {
+    std::vector<InputDevice> devices;
+    const HRESULT com_result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool should_uninitialize = SUCCEEDED(com_result);
+    if (FAILED(com_result) && com_result != RPC_E_CHANGED_MODE) return devices;
+
+    ComPtr<IMMDeviceEnumerator> enumerator;
+    ComPtr<IMMDeviceCollection> collection;
+    if (SUCCEEDED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                   IID_PPV_ARGS(&enumerator))) &&
+        SUCCEEDED(enumerator->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE, &collection))) {
+        UINT count = 0;
+        collection->GetCount(&count);
+        for (UINT index = 0; index < count; ++index) {
+            ComPtr<IMMDevice> device;
+            LPWSTR raw_id = nullptr;
+            if (FAILED(collection->Item(index, &device)) ||
+                FAILED(device->GetId(&raw_id))) {
+                if (raw_id != nullptr) CoTaskMemFree(raw_id);
+                continue;
+            }
+
+            InputDevice option;
+            option.id = utf8_from_wide(raw_id);
+            CoTaskMemFree(raw_id);
+
+            ComPtr<IPropertyStore> properties;
+            PROPVARIANT friendly_name;
+            PropVariantInit(&friendly_name);
+            if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, &properties)) &&
+                SUCCEEDED(properties->GetValue(PKEY_Device_FriendlyName, &friendly_name)) &&
+                friendly_name.vt == VT_LPWSTR) {
+                option.name = utf8_from_wide(friendly_name.pwszVal);
+            }
+            PropVariantClear(&friendly_name);
+            if (option.name.empty()) option.name = option.id;
+            if (!option.id.empty()) devices.push_back(std::move(option));
+        }
+    }
+    if (should_uninitialize) CoUninitialize();
+    return devices;
 }
 
 void VoiceService::set_grammar(grammar_parser::parse_state grammar) {
@@ -199,6 +311,9 @@ void VoiceService::worker_main() {
         if (!running_.load()) {
             break;
         }
+        if (input_device_disconnected()) {
+            continue;
+        }
         const auto samples = snapshot_samples();
         if (!samples.empty()) {
             if (auto transcript = transcribe(samples, true)) {
@@ -215,7 +330,7 @@ void VoiceService::worker_main() {
 void VoiceService::capture_main() {
     const HRESULT com_result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(com_result)) {
-        push_result(false, "could not initialize the Windows audio subsystem");
+        report_device_failure();
     } else {
         capture_phrase();
         CoUninitialize();
@@ -231,16 +346,27 @@ void VoiceService::capture_phrase() {
 
     HRESULT result = CoCreateInstance(
         __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
-    if (FAILED(result) || FAILED(enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &device)) ||
+    std::string selected_device_id;
+    {
+        std::lock_guard lock(device_mutex_);
+        selected_device_id = selected_input_device_id_;
+    }
+    const std::wstring wide_device_id = wide_from_utf8(selected_device_id);
+    const HRESULT device_result = selected_device_id.empty()
+        ? enumerator ? enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &device) : E_FAIL
+        : enumerator ? enumerator->GetDevice(
+              wide_device_id.c_str(), &device)
+          : E_FAIL;
+    if (FAILED(result) || FAILED(device_result) ||
         FAILED(device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                                 reinterpret_cast<void**>(audio_client.GetAddressOf())))) {
-        push_result(false, "could not open the default microphone");
+        report_device_failure();
         return;
     }
 
     WAVEFORMATEX* format = nullptr;
     if (FAILED(audio_client->GetMixFormat(&format))) {
-        push_result(false, "could not read the microphone format");
+        report_device_failure();
         return;
     }
 
@@ -252,7 +378,7 @@ void VoiceService::capture_phrase() {
 
     if ((!floating_point && !pcm) || bytes_per_sample == 0 || channels == 0) {
         CoTaskMemFree(format);
-        push_result(false, "the default microphone uses an unsupported audio format");
+        report_device_failure();
         return;
     }
 
@@ -261,19 +387,25 @@ void VoiceService::capture_phrase() {
     CoTaskMemFree(format);
     if (FAILED(result) || FAILED(audio_client->GetService(IID_PPV_ARGS(&capture_client))) ||
         FAILED(audio_client->Start())) {
-        push_result(false, "could not start microphone capture");
+        report_device_failure();
         return;
     }
 
     std::vector<float> mono_samples;
     while (running_.load() && listening_.load()) {
         UINT32 packet_size = 0;
-        while (SUCCEEDED(capture_client->GetNextPacketSize(&packet_size)) && packet_size != 0) {
+        const HRESULT packet_result = capture_client->GetNextPacketSize(&packet_size);
+        if (FAILED(packet_result)) {
+            report_device_failure();
+            return;
+        }
+        while (packet_size != 0) {
             BYTE* data = nullptr;
             UINT32 frames = 0;
             DWORD flags = 0;
             if (FAILED(capture_client->GetBuffer(&data, &frames, &flags, nullptr, nullptr))) {
-                break;
+                report_device_failure();
+                return;
             }
 
             if ((flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0) {
@@ -291,15 +423,34 @@ void VoiceService::capture_phrase() {
             capture_client->ReleaseBuffer(frames);
 
             {
+                std::lock_guard lock(device_mutex_);
+                input_device_disconnected_ = false;
+            }
+            {
                 std::lock_guard lock(samples_mutex_);
                 samples_ = std::move(resample_to_whisper_rate(mono_samples, sample_rate));
             }
             samples_cv_.notify_all();
+            if (FAILED(capture_client->GetNextPacketSize(&packet_size))) {
+                report_device_failure();
+                return;
+            }
         }
         Sleep(10);
     }
 
     audio_client->Stop();
+}
+
+void VoiceService::report_device_failure() {
+    {
+        std::lock_guard lock(device_mutex_);
+        input_device_disconnected_ = true;
+    }
+    listening_.store(false);
+    push_result(false, "input device disconnected");
+    wake_cv_.notify_all();
+    samples_cv_.notify_all();
 }
 
 std::vector<float> VoiceService::snapshot_samples() {

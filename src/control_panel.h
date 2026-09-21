@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "XPLMDisplay.h"
@@ -12,11 +13,17 @@ class ControlPanel {
 public:
     struct Sources {
         std::function<bool()> is_listening;
+        std::function<std::string()> listening_status;
         std::function<const ExecutionEngine*()> execution_engine;
         std::function<std::string()> engine_status;
         std::function<std::string()> lua_file;
         std::function<std::vector<std::string>()> log_lines;
         std::function<void(std::string)> submit_transcript;
+        std::function<std::vector<std::pair<std::string, std::string>>()> input_devices;
+        std::function<std::string()> selected_input_device_id;
+        std::function<bool()> input_device_disconnected;
+        std::function<void()> refresh_input_devices;
+        std::function<void(std::string)> select_input_device;
     };
 
     explicit ControlPanel(Sources sources);
@@ -57,4 +64,5 @@ private:
     int selected_command_ = 0;
     bool text_input_active_ = false;
     std::string typed_command_;
+    bool settings_device_menu_open_ = false;
 };

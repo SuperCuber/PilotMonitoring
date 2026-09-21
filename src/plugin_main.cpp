@@ -45,6 +45,7 @@ bool g_flight_loop_registered = false;
 XPLMFlightLoopID g_aircraft_flight_loop = nullptr;
 std::string g_last_aircraft_load_error;
 std::string g_loaded_lua_file;
+std::string g_selected_input_device_id;
 std::mutex g_log_mutex;
 std::deque<std::string> g_private_log;
 
@@ -70,6 +71,29 @@ void log_line(std::string_view line) {
 std::vector<std::string> private_log_lines() {
     std::lock_guard lock(g_log_mutex);
     return {g_private_log.begin(), g_private_log.end()};
+}
+
+std::filesystem::path preferences_file_path() {
+    char preferences_path[512]{};
+    XPLMGetPrefsPath(preferences_path);
+    return std::filesystem::path(preferences_path).parent_path() / "PilotMonitoring.prf";
+}
+
+void load_preferences() {
+    std::ifstream file(preferences_file_path());
+    std::string line;
+    while (std::getline(file, line)) {
+        constexpr std::string_view kPrefix = "input_device_id=";
+        if (line.rfind(kPrefix, 0) == 0) {
+            g_selected_input_device_id = line.substr(kPrefix.size());
+            return;
+        }
+    }
+}
+
+void save_preferences() {
+    std::ofstream file(preferences_file_path(), std::ios::trunc);
+    if (file) file << "input_device_id=" << g_selected_input_device_id << '\n';
 }
 
 int handle_ptt_command(XPLMCommandRef, XPLMCommandPhase phase, void*) {
@@ -343,7 +367,9 @@ float process_voice_results(float, float, int, void*) {
     while (const auto result = g_voice_service->pop_result()) {
         if (!result->recognized) {
             log_line(result->text);
-            if (result->text == "no speech was recognized") {
+            if (result->text == "input device disconnected") {
+                play_sound(PlaySoundAction{"negative_beep"});
+            } else if (result->text == "no speech was recognized") {
                 std::vector<Action> actions;
                 std::string error;
                 const auto active = g_execution_engine
@@ -415,6 +441,7 @@ PLUGIN_API int XPluginStart(char* out_name, char* out_signature, char* out_descr
     std::strcpy(out_name, kPluginName);
     std::strcpy(out_signature, kPluginSignature);
     std::strcpy(out_description, kPluginDescription);
+    load_preferences();
 
     g_ptt_command = XPLMCreateCommand(
         kPttCommandName,
@@ -429,6 +456,7 @@ PLUGIN_API int XPluginStart(char* out_name, char* out_signature, char* out_descr
 
     g_control_panel = std::make_unique<ControlPanel>(ControlPanel::Sources{
         [] { return g_voice_service && g_voice_service->is_listening(); },
+        [] { return g_voice_service ? g_voice_service->listening_status() : "no"; },
         [] { return g_execution_engine.get(); },
         [] {
             if (g_execution_engine) return std::string("loaded");
@@ -437,6 +465,23 @@ PLUGIN_API int XPluginStart(char* out_name, char* out_signature, char* out_descr
         [] { return g_loaded_lua_file.empty() ? "none" : g_loaded_lua_file; },
         private_log_lines,
         handle_transcript,
+        [] {
+            std::vector<std::pair<std::string, std::string>> devices;
+            if (g_voice_service) {
+                for (const auto& device : g_voice_service->input_devices()) {
+                    devices.emplace_back(device.id, device.name);
+                }
+            }
+            return devices;
+        },
+        [] { return g_voice_service ? g_voice_service->selected_input_device_id() : std::string{}; },
+        [] { return g_voice_service && g_voice_service->input_device_disconnected(); },
+        [] { if (g_voice_service) g_voice_service->refresh_input_devices(); },
+        [](std::string id) {
+            g_selected_input_device_id = id;
+            if (g_voice_service) g_voice_service->set_input_device(id);
+            save_preferences();
+        },
     });
 
     XPLMCreateFlightLoop_t aircraft_loop_params{};
@@ -482,6 +527,7 @@ PLUGIN_API int XPluginEnable() {
     g_loaded_lua_file.clear();
     g_last_aircraft_load_error.clear();
     g_voice_service = std::make_unique<VoiceService>(model_path().string(), grammar_parser::parse_state{});
+    g_voice_service->set_input_device(g_selected_input_device_id);
     g_voice_service->start();
     XPLMRegisterFlightLoopCallback(process_voice_results, 0.1F, nullptr);
     g_flight_loop_registered = true;
@@ -508,6 +554,10 @@ PLUGIN_API void XPluginDisable() {
 }
 
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int message, void* param) {
+    if (message == XPLM_MSG_WILL_WRITE_PREFS) {
+        save_preferences();
+        return;
+    }
     if (message != XPLM_MSG_PLANE_LOADED ||
         static_cast<int>(reinterpret_cast<intptr_t>(param)) != 0 ||
         !g_flight_loop_registered || g_aircraft_flight_loop == nullptr) {

@@ -25,6 +25,9 @@ constexpr float kActiveTabColor[] = {0.42F, 0.45F, 0.48F};
 constexpr float kTabBorderColor[] = {0.11F, 0.13F, 0.15F};
 constexpr float kStatusGreen[] = {0.38F, 0.90F, 0.52F};
 constexpr float kStatusAmber[] = {1.0F, 0.72F, 0.25F};
+constexpr float kStatusRed[] = {1.0F, 0.30F, 0.30F};
+constexpr float kDropdownColor[] = {0.16F, 0.18F, 0.20F};
+constexpr float kDropdownOpenColor[] = {0.24F, 0.27F, 0.30F};
 
 void fill_rect(int left, int top, int right, int bottom, const float* color) {
     glColor3fv(color);
@@ -184,8 +187,13 @@ void ControlPanel::draw_status(int left, int top, int right, int bottom) {
     draw_status_field(text_left, y, "LUA FILE:", sources_.lua_file(), kStatusGreen);
     y -= kLineHeight;
     const bool listening = sources_.is_listening();
-    draw_status_field(text_left, y, "LISTENING:", listening ? "yes" : "no",
-                      listening ? kStatusAmber : kStatusGreen);
+    const std::string listening_status = sources_.listening_status
+        ? sources_.listening_status()
+        : (listening ? "yes" : "no");
+    const float* listening_color = listening_status == "device disconnected"
+        ? kStatusRed
+        : listening ? kStatusAmber : kStatusGreen;
+    draw_status_field(text_left, y, "LISTENING:", listening_status, listening_color);
     y -= kLineHeight;
     const ExecutionEngine* engine = sources_.execution_engine();
     if (engine) {
@@ -351,8 +359,67 @@ void ControlPanel::draw_grammar(int left, int top, int right, int bottom) {
 
 void ControlPanel::draw_settings(int left, int top, int right, int bottom) {
     float normal[] = {0.92F, 0.92F, 0.92F};
+    float cyan[] = {0.32F, 0.82F, 0.94F};
     fill_rect(left, top + 8, right, bottom, kPanelColor);
-    draw_text(normal, left + 8, top - 10, "INOP");
+    draw_text(cyan, left + 8, top - 18, "INPUT DEVICE:");
+
+    std::vector<std::pair<std::string, std::string>> options{{"", "System default"}};
+    if (sources_.input_devices) {
+        for (const auto& device : sources_.input_devices()) {
+            options.emplace_back(device.first, device.second);
+        }
+    }
+    const std::string selected_id = sources_.selected_input_device_id
+        ? sources_.selected_input_device_id() : std::string{};
+    const bool disconnected = sources_.input_device_disconnected &&
+                              sources_.input_device_disconnected();
+    std::string selected_name = "System default";
+    for (const auto& option : options) {
+        if (option.first == selected_id) {
+            selected_name = option.second;
+            break;
+        }
+    }
+    if (disconnected && !selected_id.empty()) {
+        selected_name = "Device disconnected";
+        bool already_present = false;
+        for (const auto& option : options) already_present |= option.first == selected_id;
+        if (!already_present) options.emplace_back(selected_id, selected_name);
+    }
+
+    const int row_baseline = top - 18;
+    const int dropdown_left = left + 120;
+    const int dropdown_right = left + 480;
+    const int dropdown_top = row_baseline + 10;
+    const int dropdown_bottom = row_baseline - 6;
+    fill_rect(dropdown_left, dropdown_top, dropdown_right, dropdown_bottom,
+              settings_device_menu_open_ ? kDropdownOpenColor : kDropdownColor);
+    draw_text(disconnected ? kStatusRed : normal, dropdown_left + 8, row_baseline, selected_name);
+
+    int character_width = 0;
+    XPLMGetFontDimensions(xplmFont_Basic, &character_width, nullptr, nullptr);
+    constexpr char kRefreshLabel[] = "REFRESH";
+    constexpr int kRefreshPadding = 12;
+    const int refresh_left = dropdown_right + 12;
+    const int refresh_right = refresh_left +
+                              static_cast<int>(sizeof(kRefreshLabel) - 1) * character_width +
+                              2 * kRefreshPadding;
+    fill_rect(refresh_left, dropdown_top, refresh_right, dropdown_bottom, kInactiveTabColor);
+    draw_text(normal, refresh_left + kRefreshPadding, row_baseline, kRefreshLabel);
+
+    if (settings_device_menu_open_) {
+        const int option_height = 22;
+        int option_top = dropdown_bottom - 2;
+        for (const auto& option : options) {
+            const int option_bottom = option_top - option_height;
+            fill_rect(dropdown_left, option_top, dropdown_right, option_bottom, kDropdownColor);
+            const bool option_is_disconnected = disconnected && option.first == selected_id;
+            draw_text(option_is_disconnected ? kStatusRed : option.first == selected_id ? cyan : normal,
+                      dropdown_left + 8, option_top - 16, option.second);
+            option_top = option_bottom;
+        }
+    }
+
 }
 
 int ControlPanel::handle_mouse(int x, int y, XPLMMouseStatus status) {
@@ -397,6 +464,65 @@ int ControlPanel::handle_mouse(int x, int y, XPLMMouseStatus status) {
                 if (index >= 0 && index < static_cast<int>(commands.size())) selected_command_ = index;
             }
         }
+    }
+    if (tab_ == Tab::Settings) {
+        const int content_top = top - kTabHeight - 16;
+        const int row_baseline = content_top - 18;
+        const int dropdown_left = left + kMargin + 120;
+        const int dropdown_right = left + kMargin + 480;
+        const int dropdown_top = row_baseline + 10;
+        const int dropdown_bottom = row_baseline - 6;
+        int character_width = 0;
+        XPLMGetFontDimensions(xplmFont_Basic, &character_width, nullptr, nullptr);
+        constexpr int kRefreshPadding = 12;
+        const int refresh_left = dropdown_right + 12;
+        const int refresh_right = refresh_left + 7 * character_width + 2 * kRefreshPadding;
+
+        std::vector<std::pair<std::string, std::string>> options{{"", "System default"}};
+        if (sources_.input_devices) {
+            for (const auto& device : sources_.input_devices()) {
+                options.emplace_back(device.first, device.second);
+            }
+        }
+        const std::string selected_id = sources_.selected_input_device_id
+            ? sources_.selected_input_device_id() : std::string{};
+        const bool disconnected = sources_.input_device_disconnected &&
+                                  sources_.input_device_disconnected();
+        if (disconnected && !selected_id.empty()) {
+            bool already_present = false;
+            for (const auto& option : options) already_present |= option.first == selected_id;
+            if (!already_present) options.emplace_back(selected_id, "Device disconnected");
+        }
+
+        if (x >= refresh_left && x <= refresh_right &&
+            y <= dropdown_top && y >= dropdown_bottom) {
+            if (sources_.refresh_input_devices) sources_.refresh_input_devices();
+            settings_device_menu_open_ = false;
+            return 1;
+        }
+        if (settings_device_menu_open_) {
+            const int option_height = 22;
+            int option_top = dropdown_bottom - 2;
+            for (const auto& option : options) {
+                const int option_bottom = option_top - option_height;
+                if (x >= dropdown_left && x <= dropdown_right &&
+                    y <= option_top && y >= option_bottom) {
+                    const bool is_disconnected_state = disconnected && option.first == selected_id;
+                    if (!is_disconnected_state && sources_.select_input_device) {
+                        sources_.select_input_device(option.first);
+                    }
+                    settings_device_menu_open_ = false;
+                    return 1;
+                }
+                option_top = option_bottom;
+            }
+        }
+        if (x >= dropdown_left && x <= dropdown_right &&
+            y <= dropdown_top && y >= dropdown_bottom) {
+            settings_device_menu_open_ = !settings_device_menu_open_;
+            return 1;
+        }
+        settings_device_menu_open_ = false;
     }
     return 1;
 }
