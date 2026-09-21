@@ -108,9 +108,9 @@ register_handler {
 }
 
 do_repeated("strobe_on", "laminar/B738/toggle_switch/position_light_up", 2,
-    { { "strobe on" }, { "set strobe on" } })
+    { { "strobe" }, { "strobe on" }, { "set strobe on" } })
 do_repeated("strobe_off", "laminar/B738/toggle_switch/position_light_down", 2,
-    { { "strobe off" }, { "set strobe off" } })
+    { { "strobe off" }, { "set strobe off" }, { "strobe steady" } })
 
 local function set_taxi_lights(taxi_command, runway_turnoff)
     return function(_)
