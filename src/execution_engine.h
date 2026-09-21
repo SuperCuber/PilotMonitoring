@@ -25,6 +25,8 @@ struct DatarefHost {
 };
 
 struct TriggerCommandAction { std::string command; };
+struct BeginCommandAction { std::string command; };
+struct EndCommandAction { std::string command; };
 struct SpeakAction { std::string message; };
 struct PlaySoundAction { std::string filename; };
 struct SetIntegerDatarefAction { std::string dataref; int value = 0; };
@@ -33,6 +35,8 @@ struct SetBooleanDatarefAction { std::string dataref; bool value = false; };
 
 using Action = std::variant<
     TriggerCommandAction,
+    BeginCommandAction,
+    EndCommandAction,
     SpeakAction,
     PlaySoundAction,
     SetIntegerDatarefAction,

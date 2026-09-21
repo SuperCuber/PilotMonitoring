@@ -327,6 +327,19 @@ void execute_action(const Action& action) {
             }
             XPLMCommandOnce(command_ref);
             return;
+        } else if constexpr (std::is_same_v<T, BeginCommandAction> ||
+                             std::is_same_v<T, EndCommandAction>) {
+            const XPLMCommandRef command_ref = XPLMFindCommand(value.command.c_str());
+            if (command_ref == nullptr) {
+                log_line("command target is unavailable.");
+                return;
+            }
+            if constexpr (std::is_same_v<T, BeginCommandAction>) {
+                XPLMCommandBegin(command_ref);
+            } else {
+                XPLMCommandEnd(command_ref);
+            }
+            return;
         } else if constexpr (std::is_same_v<T, SpeakAction>) {
             XPLMSpeakString(value.message.c_str());
             return;

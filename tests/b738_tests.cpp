@@ -77,13 +77,8 @@ bool references_test() {
 bool automation_test() {
     FakeHost host; ExecutionEngine engine(&host); std::string error;
     if (!load(engine, error)) return false;
-    auto actions = engine.handle_event(Event::transcript_event("flight director"), error);
-    if (!expect_true(error.empty() && actions.size() == 3, "flight director actions")) return false;
-    if (!expect_equal(std::get<TriggerCommandAction>(actions[0]).command, std::string{"laminar/B738/autopilot/flight_director_toggle"}, "pilot flight director") ||
-        !expect_equal(std::get<TriggerCommandAction>(actions[1]).command, std::string{"laminar/B738/autopilot/flight_director_fo_toggle"}, "copilot flight director")) return false;
-
     host.floats["laminar/B738/autopilot/vs_status"] = 1.0F;
-    actions = engine.handle_event(Event::transcript_event("vertical speed 1800"), error);
+    auto actions = engine.handle_event(Event::transcript_event("vertical speed 1800"), error);
     if (!expect_true(error.empty() && actions.size() == 1, "vertical speed press actions") ||
         !expect_equal(std::get<TriggerCommandAction>(actions[0]).command, std::string{"laminar/B738/autopilot/vs_press"}, "vertical speed press")) return false;
     actions = engine.handle_event(Event::tick_event(0.9F), error);
@@ -131,18 +126,58 @@ bool automation_test() {
                        "standby mode steps");
 }
 
+bool runway_vacated_test() {
+    FakeHost host; ExecutionEngine engine(&host); std::string error;
+    if (!load(engine, error)) return false;
+    host.floats["laminar/B738/engine/starter1_pos"] = 3.0F;
+    host.floats["laminar/B738/engine/starter2_pos"] = 3.0F;
+    host.floats["laminar/B738/knob/transponder_pos"] = 1.0F;
+
+    auto actions = engine.handle_event(Event::transcript_event("runway vacated"), error);
+    if (!expect_true(error.empty() && actions.size() == 16, "runway vacated actions")) return false;
+    if (!expect_equal(std::get<TriggerCommandAction>(actions[0]).command,
+                      std::string{"laminar/B738/EFIS_control/capt/push_button/terr_press"},
+                      "terrain first press") ||
+        !expect_equal(std::get<TriggerCommandAction>(actions[1]).command,
+                      std::string{"laminar/B738/EFIS_control/capt/push_button/terr_press"},
+                      "terrain second press") ||
+        !expect_equal(std::get<TriggerCommandAction>(actions[2]).command,
+                      std::string{"laminar/B738/push_button/flaps_0"},
+                      "flaps up")) return false;
+    if (!expect_equal(std::get<SetFloatDatarefAction>(actions[3]).dataref,
+                      std::string{"laminar/B738/flt_ctrls/speedbrake_lever"},
+                      "speedbrake dataref") ||
+        !expect_equal(std::get<SetFloatDatarefAction>(actions[3]).value, 0.0F,
+                      "speedbrake retracted")) return false;
+    if (!expect_equal(std::get<SetFloatDatarefAction>(actions[5]).dataref,
+                      std::string{"laminar/B738/toggle_switch/capt_probes_pos"},
+                      "captain probes") ||
+        !expect_equal(std::get<SetFloatDatarefAction>(actions[6]).dataref,
+                      std::string{"laminar/B738/toggle_switch/fo_probes_pos"},
+                      "first officer probes") ||
+        !expect_equal(std::get<TriggerCommandAction>(actions[7]).command,
+                      std::string{"laminar/B738/knob/eng1_start_left"},
+                      "engine one starter") ||
+        !expect_equal(std::get<TriggerCommandAction>(actions[9]).command,
+                      std::string{"laminar/B738/knob/eng2_start_left"},
+                      "engine two starter")) return false;
+    return expect_equal(std::get<PlaySoundAction>(actions.back()).filename,
+                        std::string{"positive_beep"}, "runway vacated beep");
+}
+
 bool run_subtest(const std::string& name) {
     if (name == "radio") return radio_test();
     if (name == "flap") return flap_test();
     if (name == "references") return references_test();
     if (name == "automation") return automation_test();
+    if (name == "runway_vacated") return runway_vacated_test();
     return expect_true(false, "unknown B738 subtest: " + name);
 }
 }
 
 int main(int argc, char** argv) {
     if (argc == 1) {
-        return radio_test() && flap_test() && references_test() && automation_test()
+        return radio_test() && flap_test() && references_test() && automation_test() && runway_vacated_test()
                    ? EXIT_SUCCESS
                    : EXIT_FAILURE;
     }

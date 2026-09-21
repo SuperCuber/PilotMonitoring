@@ -244,10 +244,78 @@ do_simple("landing_lights_on", "sim/lights/landing_lights_on",
 do_simple("landing_lights_off", "sim/lights/landing_lights_off",
     { { "landing lights off" }, { "set landing lights off" } })
 
-do_repeated("apu_start", "laminar/B738/spring_toggle_switch/APU_start_pos_dn", 2,
-    { { "apu start" }, { "set apu start" } })
-do_simple("apu_off", "laminar/B738/spring_toggle_switch/APU_start_pos_up",
-    { { "shutdown apu" }, { "apu shutdown" } })
+local function starter_off(dataref, command)
+    local position = get_dataref_float(dataref)
+    if position == nil then
+        return false
+    end
+    position = math.floor(position + 0.5)
+    for _ = 1, math.max(0, position - 1) do
+        trigger_command(command)
+    end
+    return true
+end
+
+local function transponder_mode_charlie()
+    local position = get_dataref_float("laminar/B738/knob/transponder_pos")
+    if position == nil then
+        return false
+    end
+    position = math.floor(position + 0.5)
+    local command = position < 3
+        and "laminar/B738/knob/transponder_mode_up"
+        or "laminar/B738/knob/transponder_mode_dn"
+    for _ = 1, math.abs(3 - position) do
+        trigger_command(command)
+    end
+    return true
+end
+
+register_handler {
+    id = "runway_vacated",
+    phrases = { { "runway vacated" } },
+    handler = function(_)
+        trigger_command("laminar/B738/EFIS_control/capt/push_button/terr_press")
+        trigger_command("laminar/B738/EFIS_control/capt/push_button/terr_press")
+        trigger_command("laminar/B738/push_button/flaps_0")
+        set_dataref_float("laminar/B738/flt_ctrls/speedbrake_lever", 0)
+        trigger_command("sim/lights/landing_lights_off")
+        set_dataref_float("laminar/B738/toggle_switch/capt_probes_pos", 0)
+        set_dataref_float("laminar/B738/toggle_switch/fo_probes_pos", 0)
+
+        if not starter_off("laminar/B738/engine/starter1_pos", "laminar/B738/knob/eng1_start_left") or
+           not starter_off("laminar/B738/engine/starter2_pos", "laminar/B738/knob/eng2_start_left") or
+           not transponder_mode_charlie() then
+            play_sound("negative_beep")
+            return
+        end
+
+        trigger_command("laminar/B738/toggle_switch/position_light_down")
+        trigger_command("laminar/B738/toggle_switch/position_light_down")
+        play_sound("positive_beep")
+    end,
+}
+
+register_handler {
+    id = "apu_start",
+    phrases = { { "apu start" }, { "set apu start" } },
+    handler = function(_)
+        begin_command("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
+        wait_ms(1000)
+        end_command("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
+        set_dataref_float("laminar/B738/toggle_switch/bleed_air_apu_pos", 1)
+        play_sound("positive_beep")
+    end,
+}
+register_handler {
+    id = "apu_off",
+    phrases = { { "shutdown apu" }, { "apu shutdown" } },
+    handler = function(_)
+        trigger_command("laminar/B738/spring_toggle_switch/APU_start_pos_up")
+        set_dataref_float("laminar/B738/toggle_switch/bleed_air_apu_pos", 0)
+        play_sound("positive_beep")
+    end,
+}
 
 do_simple("transponder_ident", "laminar/B738/push_button/transponder_ident_dn",
     { { "transponder ident" }, { "squawk ident" } })

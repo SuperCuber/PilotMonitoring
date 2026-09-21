@@ -255,6 +255,22 @@ int trigger_command(lua_State* lua) {
     return 0;
 }
 
+int begin_command(lua_State* lua) {
+    auto* context_value = context(lua);
+    const char* command = luaL_checkstring(lua, 1);
+    log_lua_call(context_value, "begin_command(\"" + std::string(command) + "\")");
+    context_value->actions.emplace_back(BeginCommandAction{command});
+    return 0;
+}
+
+int end_command(lua_State* lua) {
+    auto* context_value = context(lua);
+    const char* command = luaL_checkstring(lua, 1);
+    log_lua_call(context_value, "end_command(\"" + std::string(command) + "\")");
+    context_value->actions.emplace_back(EndCommandAction{command});
+    return 0;
+}
+
 int say(lua_State* lua) {
     auto* context_value = context(lua);
     const char* message = luaL_checkstring(lua, 1);
@@ -300,8 +316,8 @@ int set_integer(lua_State* lua) {
     auto* context_value = context(lua);
     const char* dataref = luaL_checkstring(lua, 1);
     const auto value = static_cast<int>(luaL_checkinteger(lua, 2));
-    if (!validate_dataref(lua, context_value, dataref, DatarefType::Integer, true)) return 0;
     log_lua_call(context_value, "set_dataref_integer(\"" + escape(dataref) + "\", " + std::to_string(value) + ")");
+    if (!validate_dataref(lua, context_value, dataref, DatarefType::Integer, true)) return 0;
     context_value->actions.emplace_back(SetIntegerDatarefAction{dataref, value});
     return 0;
 }
@@ -310,10 +326,10 @@ int set_float(lua_State* lua) {
     auto* context_value = context(lua);
     const char* dataref = luaL_checkstring(lua, 1);
     const auto value = static_cast<float>(luaL_checknumber(lua, 2));
-    if (!validate_dataref(lua, context_value, dataref, DatarefType::Float, true)) return 0;
     std::ostringstream formatted;
     formatted << value;
     log_lua_call(context_value, "set_dataref_float(\"" + escape(dataref) + "\", " + formatted.str() + ")");
+    if (!validate_dataref(lua, context_value, dataref, DatarefType::Float, true)) return 0;
     context_value->actions.emplace_back(SetFloatDatarefAction{dataref, value});
     return 0;
 }
@@ -322,8 +338,8 @@ int set_boolean(lua_State* lua) {
     auto* context_value = context(lua);
     const char* dataref = luaL_checkstring(lua, 1);
     const bool value = lua_toboolean(lua, 2) != 0;
-    if (!validate_dataref(lua, context_value, dataref, DatarefType::Integer, true)) return 0;
     log_lua_call(context_value, "set_dataref_boolean(\"" + escape(dataref) + "\", " + (value ? "true" : "false") + ")");
+    if (!validate_dataref(lua, context_value, dataref, DatarefType::Integer, true)) return 0;
     context_value->actions.emplace_back(
         SetBooleanDatarefAction{dataref, value});
     return 0;
@@ -353,6 +369,7 @@ int get_dataref(lua_State* lua, int kind) {
     }
 
     const DatarefType expected_type = kind == 1 ? DatarefType::Float : DatarefType::Integer;
+    log_lua_call(context_value, call);
     if (!validate_dataref(lua, context_value, name, expected_type, false)) return 0;
 
     if (kind == 0) {
@@ -562,6 +579,8 @@ void install_api(lua_State* lua) {
     lua_pushcfunction(lua, say); lua_setglobal(lua, "say");
     lua_pushcfunction(lua, play_sound); lua_setglobal(lua, "play_sound");
     lua_pushcfunction(lua, trigger_command); lua_setglobal(lua, "trigger_command");
+    lua_pushcfunction(lua, begin_command); lua_setglobal(lua, "begin_command");
+    lua_pushcfunction(lua, end_command); lua_setglobal(lua, "end_command");
     lua_pushcfunction(lua, set_integer); lua_setglobal(lua, "set_dataref_integer");
     lua_pushcfunction(lua, set_float); lua_setglobal(lua, "set_dataref_float");
     lua_pushcfunction(lua, set_boolean); lua_setglobal(lua, "set_dataref_boolean");
