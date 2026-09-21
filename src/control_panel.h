@@ -24,6 +24,7 @@ public:
         std::function<bool()> input_device_disconnected;
         std::function<void()> refresh_input_devices;
         std::function<void(std::string)> select_input_device;
+        std::function<void()> reload_lua_file;
     };
 
     explicit ControlPanel(Sources sources);

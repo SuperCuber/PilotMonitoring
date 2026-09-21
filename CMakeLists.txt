@@ -94,21 +94,24 @@ set_target_properties(PilotMonitoring PROPERTIES
         "${CMAKE_BINARY_DIR}/package/PilotMonitoring/win_x64"
 )
 
-add_custom_command(TARGET PilotMonitoring POST_BUILD
+add_custom_target(PilotMonitoringResources ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/models"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/README.txt"
         "${CMAKE_BINARY_DIR}/package/PilotMonitoring/README.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/libs/whisper.cpp/models/ggml-base.en.bin"
         "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/models/ggml-base.en.bin"
-    COMMENT "Adding plugin documentation to the package"
+    COMMENT "Staging plugin resources"
 )
+add_dependencies(PilotMonitoring PilotMonitoringResources)
 
 foreach (aircraft_commands ${AIRCRAFT_COMMAND_FILES})
     get_filename_component(aircraft_filename "${aircraft_commands}" NAME)
-    add_custom_command(TARGET PilotMonitoring POST_BUILD
+    add_custom_command(TARGET PilotMonitoringResources PRE_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${aircraft_commands}"
             "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/${aircraft_filename}"
@@ -117,7 +120,7 @@ endforeach()
 
 foreach (audio_resource ${AUDIO_RESOURCE_FILES})
     get_filename_component(audio_filename "${audio_resource}" NAME)
-    add_custom_command(TARGET PilotMonitoring POST_BUILD
+    add_custom_command(TARGET PilotMonitoringResources PRE_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "${CMAKE_BINARY_DIR}/package/PilotMonitoring/resources/audio"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

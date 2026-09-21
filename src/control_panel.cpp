@@ -407,6 +407,19 @@ void ControlPanel::draw_settings(int left, int top, int right, int bottom) {
     fill_rect(refresh_left, dropdown_top, refresh_right, dropdown_bottom, kInactiveTabColor);
     draw_text(normal, refresh_left + kRefreshPadding, row_baseline, kRefreshLabel);
 
+    constexpr char kReloadLuaLabel[] = "RELOAD LUA FILE";
+    constexpr int kReloadLuaPadding = 12;
+    const int reload_lua_left = left + 8;
+    const int reload_lua_baseline = row_baseline - 40;
+    const int reload_lua_top = reload_lua_baseline + 10;
+    const int reload_lua_bottom = reload_lua_baseline - 6;
+    const int reload_lua_right = reload_lua_left +
+                                 static_cast<int>(sizeof(kReloadLuaLabel) - 1) * character_width +
+                                 2 * kReloadLuaPadding;
+    fill_rect(reload_lua_left, reload_lua_top, reload_lua_right, reload_lua_bottom,
+              kInactiveTabColor);
+    draw_text(normal, reload_lua_left + kReloadLuaPadding, reload_lua_baseline, kReloadLuaLabel);
+
     if (settings_device_menu_open_) {
         const int option_height = 22;
         int option_top = dropdown_bottom - 2;
@@ -477,6 +490,22 @@ int ControlPanel::handle_mouse(int x, int y, XPLMMouseStatus status) {
         constexpr int kRefreshPadding = 12;
         const int refresh_left = dropdown_right + 12;
         const int refresh_right = refresh_left + 7 * character_width + 2 * kRefreshPadding;
+        constexpr char kReloadLuaLabel[] = "RELOAD LUA FILE";
+        constexpr int kReloadLuaPadding = 12;
+        const int reload_lua_left = left + kMargin + 8;
+        const int reload_lua_baseline = row_baseline - 40;
+        const int reload_lua_top = reload_lua_baseline + 10;
+        const int reload_lua_bottom = reload_lua_baseline - 6;
+        const int reload_lua_right = reload_lua_left +
+                                     static_cast<int>(sizeof(kReloadLuaLabel) - 1) * character_width +
+                                     2 * kReloadLuaPadding;
+
+        if (x >= reload_lua_left && x <= reload_lua_right &&
+            y <= reload_lua_top && y >= reload_lua_bottom) {
+            if (sources_.reload_lua_file) sources_.reload_lua_file();
+            settings_device_menu_open_ = false;
+            return 1;
+        }
 
         std::vector<std::pair<std::string, std::string>> options{{"", "System default"}};
         if (sources_.input_devices) {

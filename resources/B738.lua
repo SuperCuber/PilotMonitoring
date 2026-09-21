@@ -14,6 +14,19 @@ local function set_float(name, value)
     play_sound("positive_beep")
 end
 
+local function do_repeated(id, command, count, phrases)
+    register_handler {
+        id = id,
+        phrases = phrases,
+        handler = function(_)
+            for _ = 1, count do
+                trigger_command(command)
+            end
+            play_sound("positive_beep")
+        end,
+    }
+end
+
 local function set_course(value)
     set_dataref_float("laminar/B738/autopilot/course_pilot", value)
     set_dataref_float("laminar/B738/autopilot/course_copilot", value)
@@ -48,10 +61,10 @@ do_simple("gear_down", "laminar/B738/push_button/gear_down", {
 
 local flap_commands = {
     -- Minimum maneuvering floor and maximum placard speed, in knots.
-    { "up", "flaps_0", 0, 340 },
-    { "1", "flaps_1", 190, 250 },
-    { "2", "flaps_2", 180, 250 },
-    { "5", "flaps_5", 170, 250 },
+    { "up", "flaps_0",  0,   340 },
+    { "1",  "flaps_1",  190, 250 },
+    { "2",  "flaps_2",  180, 250 },
+    { "5",  "flaps_5",  170, 250 },
     { "10", "flaps_10", 160, 210 },
     { "15", "flaps_15", 150, 200 },
     { "25", "flaps_25", 140, 190 },
@@ -71,33 +84,65 @@ for _, flap in ipairs(flap_commands) do
     }
 end
 
-do_simple("speedbrake_arm", "sim/flight_controls/speed_brakes_arm_toggle", {{ "speedbrake arm" }, { "arm the speedbrake" }})
-do_simple("speedbrake_retract", "sim/flight_controls/speed_brakes_up_all", {{ "speedbrake up" }, { "retract speedbrake" }})
-do_simple("speedbrake_extend", "sim/flight_controls/speed_brakes_down_all", {{ "speedbrake down" }, { "extend speedbrake" }})
-do_simple("parking_brake", "laminar/B738/push_button/park_brake_on_off", {{ "parking brake" }, { "park brake" }})
+local function set_speedbrake(value)
+    return function(_)
+        set_dataref_float("laminar/B738/flt_ctrls/speedbrake_lever", value)
+        play_sound("positive_beep")
+    end
+end
 
 register_handler {
-    id = "flight_director",
-    phrases = {{ "flight director" }, { "select flight director" }, { "set flight director" }},
-    handler = function(_)
-        trigger_command("laminar/B738/autopilot/flight_director_toggle")
-        trigger_command("laminar/B738/autopilot/flight_director_fo_toggle")
+    id = "speedbrake_arm",
+    phrases = { { "speedbrake arm" }, { "arm the speedbrake" } },
+    handler = set_speedbrake(0.1),
+}
+register_handler {
+    id = "speedbrake_retract",
+    phrases = { { "speedbrake down" }, { "retract speedbrake" } },
+    handler = set_speedbrake(0),
+}
+register_handler {
+    id = "speedbrake_extend",
+    phrases = { { "speedbrake up" }, { "extend speedbrake" } },
+    handler = set_speedbrake(1),
+}
+
+do_repeated("strobe_on", "laminar/B738/toggle_switch/position_light_up", 2,
+    { { "strobe on" }, { "set strobe on" } })
+do_repeated("strobe_off", "laminar/B738/toggle_switch/position_light_down", 2,
+    { { "strobe off" }, { "set strobe off" } })
+
+local function set_taxi_lights(taxi_command, runway_turnoff)
+    return function(_)
+        trigger_command(taxi_command)
+        set_dataref_float("laminar/B738/toggle_switch/rwy_light_left", runway_turnoff)
+        set_dataref_float("laminar/B738/toggle_switch/rwy_light_right", runway_turnoff)
         play_sound("positive_beep")
-    end,
+    end
+end
+
+register_handler {
+    id = "taxi_lights_on",
+    phrases = { { "taxi lights on" }, { "set taxi lights on" } },
+    handler = set_taxi_lights("laminar/B738/toggle_switch/taxi_light_brightness_on", 1),
+}
+register_handler {
+    id = "taxi_lights_off",
+    phrases = { { "taxi lights off" }, { "set taxi lights off" } },
+    handler = set_taxi_lights("laminar/B738/toggle_switch/taxi_light_brightness_off", 0),
 }
 
 local modes = {
-    { "autopilot", "laminar/B738/autopilot/cmd_a_press" },
-    { "cmd b", "laminar/B738/autopilot/cmd_b_press" },
-    { "autothrottle", "laminar/B738/autopilot/autothrottle_arm_toggle" },
-    { "lnav", "laminar/B738/autopilot/lnav_press" },
-    { "vnav", "laminar/B738/autopilot/vnav_press" },
-    { "approach", "laminar/B738/autopilot/app_press" },
-    { "vor loc", "laminar/B738/autopilot/vorloc_press" },
-    { "alt hold", "laminar/B738/autopilot/alt_hld_press" },
-    { "altitude hold", "laminar/B738/autopilot/alt_hld_press" },
+    { "autopilot",      "laminar/B738/autopilot/cmd_a_press" },
+    { "cmd b",          "laminar/B738/autopilot/cmd_b_press" },
+    { "lnav",           "laminar/B738/autopilot/lnav_press" },
+    { "vnav",           "laminar/B738/autopilot/vnav_press" },
+    { "approach",       "laminar/B738/autopilot/app_press" },
+    { "vor loc",        "laminar/B738/autopilot/vorloc_press" },
+    { "alt hold",       "laminar/B738/autopilot/alt_hld_press" },
+    { "altitude hold",  "laminar/B738/autopilot/alt_hld_press" },
     { "heading select", "laminar/B738/autopilot/hdg_sel_press" },
-    { "level change", "laminar/B738/autopilot/lvl_chg_press" },
+    { "level change",   "laminar/B738/autopilot/lvl_chg_press" },
 }
 for _, mode in ipairs(modes) do
     local phrase, command = mode[1], mode[2]
@@ -108,17 +153,17 @@ end
 
 register_handler {
     id = "set_heading",
-    phrases = {{ "heading", slot("heading", "integer") }, { "set heading", slot("heading", "integer") }},
+    phrases = { { "heading", slot("heading", "integer") }, { "set heading", slot("heading", "integer") } },
     handler = function(slots) set_float("laminar/B738/autopilot/mcp_hdg_dial", slots.heading) end,
 }
 register_handler {
     id = "set_altitude",
-    phrases = {{ "altitude", slot("altitude", "integer") }, { "set altitude", slot("altitude", "integer") }},
+    phrases = { { "altitude", slot("altitude", "integer") }, { "set altitude", slot("altitude", "integer") } },
     handler = function(slots) set_float("laminar/B738/autopilot/mcp_alt_dial", slots.altitude) end,
 }
 register_handler {
     id = "set_flight_level",
-    phrases = {{ "flight level", slot("flight_level", "integer") }, { "set flight level", slot("flight_level", "integer") }},
+    phrases = { { "flight level", slot("flight_level", "integer") }, { "set flight level", slot("flight_level", "integer") } },
     handler = function(slots)
         local altitude = slots.flight_level * 100
         set_float("laminar/B738/autopilot/mcp_alt_dial", altitude)
@@ -126,17 +171,17 @@ register_handler {
 }
 register_handler {
     id = "set_speed",
-    phrases = {{ "speed", slot("speed", "integer") }, { "set speed", slot("speed", "integer") }},
+    phrases = { { "speed", slot("speed", "integer") }, { "set speed", slot("speed", "integer") } },
     handler = function(slots) set_float("laminar/B738/autopilot/mcp_speed_dial_kts", slots.speed) end,
 }
 register_handler {
     id = "set_course",
-    phrases = {{ "course", slot("course", "integer") }, { "set course", slot("course", "integer") }},
+    phrases = { { "course", slot("course", "integer") }, { "set course", slot("course", "integer") } },
     handler = function(slots) set_course(slots.course) end,
 }
 register_handler {
     id = "reset_heading",
-    phrases = {{ "reset heading" }, { "set heading current" }, { "set heading to current heading" }},
+    phrases = { { "reset heading" }, { "set heading current" }, { "set heading to current heading" } },
     handler = function(_)
         local heading = get_dataref_float("sim/flightmodel/position/mag_psi")
         if heading == nil then
@@ -161,12 +206,12 @@ local function vertical_speed_handler(direction)
 end
 register_handler {
     id = "set_vertical_speed",
-    phrases = {{ "vertical speed", slot("vertical_speed", "integer") }, { "vertical speed plus", slot("vertical_speed", "integer") }},
+    phrases = { { "vertical speed", slot("vertical_speed", "integer") }, { "vertical speed plus", slot("vertical_speed", "integer") } },
     handler = vertical_speed_handler(1),
 }
 register_handler {
     id = "set_vertical_speed_down",
-    phrases = {{ "vertical speed minus", slot("vertical_speed", "integer") }},
+    phrases = { { "vertical speed minus", slot("vertical_speed", "integer") } },
     handler = vertical_speed_handler(-1),
 }
 
@@ -181,33 +226,31 @@ local function radio_handler(standby_ref, swap_command, label)
 end
 register_handler {
     id = "com1_frequency",
-    phrases = {{ "com one", slot("frequency", "float") }, { "set com one", slot("frequency", "float") }},
+    phrases = {
+        { "com one", slot("frequency", "float") },
+        { "set com one", slot("frequency", "float") },
+        { "contact", slot("frequency", "float") },
+    },
     handler = radio_handler("sim/cockpit2/radios/actuators/com1_standby_frequency_hz_833", "sim/radios/com1_standy_flip", "com one"),
 }
 register_handler {
     id = "nav1_frequency",
-    phrases = {{ "nav one", slot("frequency", "float") }, { "set nav one", slot("frequency", "float") }},
+    phrases = { { "nav one", slot("frequency", "float") }, { "set nav one", slot("frequency", "float") } },
     handler = radio_handler("sim/cockpit2/radios/actuators/nav1_standby_frequency_hz", "sim/radios/nav1_standy_flip", "nav one"),
 }
 
-local simple_commands = {
-    { "landing lights on", "sim/lights/landing_lights_on" }, { "landing lights off", "sim/lights/landing_lights_off" },
-    { "taxi lights on", "sim/lights/taxi_lights_on" }, { "taxi lights off", "sim/lights/taxi_lights_off" },
-    { "beacon on", "sim/lights/beacon_lights_on" }, { "beacon off", "sim/lights/beacon_lights_off" },
-    { "strobe on", "sim/lights/strobe_lights_on" }, { "strobe off", "sim/lights/strobe_lights_off" },
-    { "navigation lights on", "sim/lights/nav_lights_on" }, { "navigation lights off", "sim/lights/nav_lights_off" },
-    { "apu on", "sim/electrical/APU_on" }, { "apu off", "sim/electrical/APU_off" }, { "apu start", "sim/electrical/APU_start" },
-    { "engine one cutoff", "laminar/B738/engine/mixture1_cutoff" }, { "engine one idle", "laminar/B738/engine/mixture1_idle" },
-    { "engine two cutoff", "laminar/B738/engine/mixture2_cutoff" }, { "engine two idle", "laminar/B738/engine/mixture2_idle" },
-    { "engine one start", "laminar/B738/rotary/eng1_start_grd" }, { "engine two start", "laminar/B738/rotary/eng2_start_grd" },
-    { "bleed air one", "laminar/B738/toggle_switch/bleed_air_1" }, { "bleed air two", "laminar/B738/toggle_switch/bleed_air_2" },
-    { "apu bleed air", "laminar/B738/toggle_switch/bleed_air_apu" },
-}
-for _, item in ipairs(simple_commands) do
-    do_simple("utility_" .. item[1]:gsub(" ", "_"), item[2], {{ item[1] }, { "set " .. item[1] }})
-end
+do_simple("landing_lights_on", "sim/lights/landing_lights_on",
+    { { "landing lights on" }, { "set landing lights on" } })
+do_simple("landing_lights_off", "sim/lights/landing_lights_off",
+    { { "landing lights off" }, { "set landing lights off" } })
 
-do_simple("transponder_ident", "laminar/B738/push_button/transponder_ident_dn", {{ "transponder ident" }, { "squawk ident" }})
+do_repeated("apu_start", "laminar/B738/spring_toggle_switch/APU_start_pos_dn", 2,
+    { { "apu start" }, { "set apu start" } })
+do_simple("apu_off", "laminar/B738/spring_toggle_switch/APU_start_pos_up",
+    { { "shutdown apu" }, { "apu shutdown" } })
+
+do_simple("transponder_ident", "laminar/B738/push_button/transponder_ident_dn",
+    { { "transponder ident" }, { "squawk ident" } })
 
 local function valid_squawk_code(code)
     if code < 0 or code > 7777 then return false end
@@ -220,7 +263,7 @@ end
 
 register_handler {
     id = "set_squawk",
-    phrases = {{ "squawk", slot("code", "integer") }, { "set squawk", slot("code", "integer") }},
+    phrases = { { "squawk", slot("code", "integer") }, { "set squawk", slot("code", "integer") } },
     handler = function(slots)
         if not valid_squawk_code(slots.code) then
             play_sound("negative_beep")
@@ -232,9 +275,9 @@ register_handler {
 }
 
 local transponder_modes = {
-    { "standby", 1 },
+    { "standby",      1 },
     { "mode charlie", 3 },
-    { "ta ra", 5 },
+    { "ta ra",        5 },
 }
 for _, mode in ipairs(transponder_modes) do
     local name, position = mode[1], mode[2]

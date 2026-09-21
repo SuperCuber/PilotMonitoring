@@ -249,16 +249,6 @@ void play_sound(const PlaySoundAction& action) {
                      xplm_AudioUI, release_pcm_sound, sound_data);
 }
 
-void log_grammar(std::string_view grammar_text) {
-    log_line("generated grammar:");
-
-    std::istringstream stream{std::string(grammar_text)};
-    std::string line;
-    while (std::getline(stream, line)) {
-        log_line(line);
-    }
-}
-
 class XPlaneDatarefHost final : public DatarefHost {
 public:
     bool validate_dataref(std::string_view name, DatarefType expected_type,
@@ -304,6 +294,28 @@ public:
 
 XPlaneDatarefHost g_dataref_host;
 
+std::string lua_file_age(const std::filesystem::path& path) {
+    std::error_code error;
+    const auto modified = std::filesystem::last_write_time(path, error);
+    if (error) return "unknown age";
+
+    auto age = std::chrono::duration_cast<std::chrono::seconds>(
+        std::filesystem::file_time_type::clock::now() - modified).count();
+    if (age < 0) age = 0;
+    if (age < 60) return std::to_string(age) + (age == 1 ? " second ago" : " seconds ago");
+
+    const auto minutes = age / 60;
+    if (minutes < 60) {
+        return std::to_string(minutes) + (minutes == 1 ? " minute ago" : " minutes ago");
+    }
+
+    const auto hours = minutes / 60;
+    if (hours < 24) return std::to_string(hours) + (hours == 1 ? " hour ago" : " hours ago");
+
+    const auto days = hours / 24;
+    return std::to_string(days) + (days == 1 ? " day ago" : " days ago");
+}
+
 void execute_action(const Action& action) {
     std::visit([](const auto& value) {
         using T = std::decay_t<decltype(value)>;
@@ -345,6 +357,11 @@ void execute_action(const Action& action) {
     }, action);
 }
 
+void report_script_error(std::string_view error) {
+    log_line("script error: " + std::string(error));
+    play_sound(PlaySoundAction{"negative_beep"});
+}
+
 void handle_transcript(const std::string& transcript) {
     log_line("transcript: \"" + transcript + "\"");
     if (!g_execution_engine) {
@@ -356,7 +373,7 @@ void handle_transcript(const std::string& transcript) {
     const auto actions = g_execution_engine->handle_event(Event::transcript_event(transcript), error);
     if (g_voice_service) g_voice_service->set_grammar(g_execution_engine->grammar());
     for (const auto& action : actions) execute_action(action);
-    if (!error.empty()) log_line("script error: " + error);
+    if (!error.empty()) report_script_error(error);
 }
 
 float process_voice_results(float, float, int, void*) {
@@ -382,7 +399,7 @@ float process_voice_results(float, float, int, void*) {
                     actions.emplace_back(PlaySoundAction{"negative_beep"});
                 }
                 for (const auto& action : actions) execute_action(action);
-                if (!error.empty()) log_line("script error: " + error);
+                if (!error.empty()) report_script_error(error);
             }
             continue;
         }
@@ -393,7 +410,7 @@ float process_voice_results(float, float, int, void*) {
         std::string error;
         const auto actions = g_execution_engine->handle_event(Event::tick_event(0.1F), error);
         g_voice_service->set_grammar(g_execution_engine->grammar());
-        if (!error.empty()) log_line("script error: " + error);
+        if (!error.empty()) report_script_error(error);
         for (const auto& action : actions) execute_action(action);
     }
     return 0.1F;
@@ -420,9 +437,9 @@ float load_aircraft_commands(float, float, int, void*) {
     g_execution_engine = std::move(engine);
     g_loaded_lua_file = commands.filename().string();
     g_last_aircraft_load_error.clear();
-    log_grammar(g_execution_engine->grammar_text());
     g_voice_service->set_grammar(g_execution_engine->grammar());
-    log_line("aircraft commands loaded.");
+    log_line("aircraft commands loaded: " + commands.filename().string() +
+             " (modified " + lua_file_age(commands) + ").");
     return 0.0F;
 }
 
@@ -482,6 +499,7 @@ PLUGIN_API int XPluginStart(char* out_name, char* out_signature, char* out_descr
             if (g_voice_service) g_voice_service->set_input_device(id);
             save_preferences();
         },
+        [] { load_aircraft_commands(0.0F, 0.0F, 0, nullptr); },
     });
 
     XPLMCreateFlightLoop_t aircraft_loop_params{};
