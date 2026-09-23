@@ -2,7 +2,5 @@
 /artifacts/
 /.vs/
 *.user
-*.vcxproj
-*.vcxproj.filters
-*.sln
-libs/
+/third_party/_bootstrap/
+/distribution/resources/models/

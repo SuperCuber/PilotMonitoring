@@ -1,0 +1,41 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "windows-release",
+      "displayName": "PilotMonitoring Windows Release",
+      "generator": "Visual Studio 16 2019",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/windows-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release",
+      "configuration": "Release",
+      "environment": {
+        "TEMP": "${sourceDir}/build/tmp",
+        "TMP": "${sourceDir}/build/tmp"
+      }
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release",
+      "configuration": "Release",
+      "environment": {
+        "TEMP": "${sourceDir}/build/tmp",
+        "TMP": "${sourceDir}/build/tmp"
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

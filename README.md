@@ -1,84 +1,92 @@
 # PilotMonitoring
 
-Windows X-Plane plugin scaffold linked with the X-Plane SDK and whisper.cpp.
+Windows/X-Plane plugin built with CMake and vcpkg.
 
-## Development commands
+## Configure, build, and test
 
-The `libs/` directory contains local-only dependencies and is intentionally
-ignored by Git. Set them up once from the project root with PowerShell:
-
-```powershell
-New-Item -ItemType Directory -Force libs | Out-Null
-
-# Lua 5.4.7, used by the embedded command engine.
-$luaArchive = Join-Path $env:TEMP 'lua-5.4.7.tar.gz'
-Invoke-WebRequest https://www.lua.org/ftp/lua-5.4.7.tar.gz -OutFile $luaArchive
-tar -xzf $luaArchive -C libs
-
-# whisper.cpp, required by the voice service. The project currently builds
-# against commit f133970bbb8c034ad9055a70afb97d61c24038f9.
-$whisperCommit = 'f133970bbb8c034ad9055a70afb97d61c24038f9'
-$whisperArchive = Join-Path $env:TEMP 'whisper.cpp.zip'
-Invoke-WebRequest "https://github.com/ggml-org/whisper.cpp/archive/$whisperCommit.zip" -OutFile $whisperArchive
-Expand-Archive $whisperArchive -DestinationPath libs
-Move-Item "libs/whisper.cpp-$whisperCommit" libs/whisper.cpp
-```
-
-Download the X-Plane SDK 4.30 from the [official X-Plane developer site](https://developer.x-plane.com/sdk/),
-then extract its `SDK` directory to `libs/XPSDK430/SDK`. The expected files
-include `libs/XPSDK430/SDK/CHeaders/XPLM/XPLMPlugin.h` and
-`libs/XPSDK430/SDK/Libraries/Win/XPLM_64.lib`.
-
-The Whisper model is also local-only. Download `ggml-base.en.bin` from the
-whisper.cpp model releases and place it at
-`libs/whisper.cpp/models/ggml-base.en.bin` before building the plugin.
-
-Run these from the project root in PowerShell:
+The production preset bootstraps the pinned vcpkg registry and installs Lua,
+whisper.cpp, and the X-Plane SDK:
 
 ```powershell
-# Configure the Visual Studio build files.
-cmake -B build
-
-# Build the Release plugin package.
-cmake --build build --config Release --target PilotMonitoring
-
-# Build all test binaries and run all tests.
-cmake --build build --config Release --target lua_engine_tests c172_tests
-ctest --test-dir build -C Release --output-on-failure
-
-# Run only one aircraft handler test.
-ctest --test-dir build -C Release -R "^aircraft\.C172\.tune_radio$" --output-on-failure
-
-# Run the C172 handler tests directly: no arguments runs all; a list selects tests.
-build\Release\c172_tests.exe tune_radio lineup_checklist
-
-# Once: link the build package into X-Plane (replace the X-Plane path first).
-New-Item -ItemType SymbolicLink -Path 'C:\X-Plane 12\Resources\plugins\PilotMonitoring' -Target (Resolve-Path build\package\PilotMonitoring)
+cmake --preset windows-release
+cmake --build --preset windows-release
+ctest --preset windows-release
 ```
 
-The symlink is a one-time setup. Afterward, run only the build command; the
-X-Plane plugin folder always points at the latest package.
-
-The finished plugin is at:
+The default build creates the complete package at:
 
 ```text
-build\package\PilotMonitoring\win_x64\PilotMonitoring.xpl
+build\windows-release\package\PilotMonitoring
 ```
 
-The package includes one Lua command file per supported aircraft, named after
-its ICAO code (for example, `resources/C172.lua`). At plugin enable time,
-PilotMonitoring reads `sim/aircraft/view/acf_ICAO` and loads the matching Lua
-file to register handlers, generate the Whisper grammar, and run the stateful
-command engine at runtime.
+The plugin is located at:
 
-If CMake/MSBuild cannot write to `C:\Temp`, set a project-local temporary
-directory before configuring or building:
+```text
+build\windows-release\package\PilotMonitoring\win_x64\PilotMonitoring.xpl
+```
+
+The package includes the Whisper model at
+`resources/models/ggml-base.en.bin`, the aircraft command files, and the
+positive and negative audio cues.
+
+To run a single registered test:
 
 ```powershell
-New-Item -ItemType Directory -Force build\tmp | Out-Null
-$env:TEMP = (Resolve-Path build\tmp)
-$env:TMP = $env:TEMP
-cmake -B build
-cmake --build build --config Release --target PilotMonitoring
-cmake --build build --config Release --target lua_engine_tests c172_tests
+ctest --preset windows-release -R "^aircraft\.C172\.tune_radio$" --output-on-failure
 ```
+
+Tests can also be run directly from the generated Release directory:
+
+```powershell
+.\build\windows-release\Release\c172_tests.exe tune_radio lineup_checklist
+```
+
+The C172 and B738 Lua files are loaded by the tests from the source
+`resources/` directory. The installed plugin loads the matching file from its
+packaged `resources/` directory based on the aircraft ICAO dataref.
+
+## Installing into X-Plane
+
+Install or link the staged `package\PilotMonitoring` directory under X-Plane's
+`Resources\plugins` directory. For example, once the destination is adjusted:
+
+```powershell
+New-Item -ItemType SymbolicLink `
+  -Path 'C:\X-Plane 12\Resources\plugins\PilotMonitoring' `
+  -Target (Resolve-Path build\windows-release\package\PilotMonitoring)
+```
+
+## Sandbox limitation
+
+CMake configuration does not work reliably inside the agent sandbox. The
+configure step bootstraps vcpkg, downloads or extracts tools and dependencies,
+and launches child processes that the sandbox may block. Configuration must be
+run by the user in a normal PowerShell session outside the sandbox:
+
+```powershell
+cmake --preset windows-release
+```
+
+This also applies when `cmake --build --preset windows-release` detects a stale
+build tree and automatically tries to regenerate it. Typical failure messages
+include:
+
+- `generate.stamp is out-of-date` followed by an automatic CMake rerun.
+- `error: calling CreateFileW stdin failed with 5 (Access is denied.)`.
+- `vcpkg install failed`.
+- `No CMAKE_CXX_COMPILER could be found` during the failed regeneration.
+- `CMake Configure step failed. Build files cannot be regenerated correctly.`
+
+### Required behavior for agents
+
+Agents must not attempt to work around a sandboxed configure failure. Do not
+edit generated Visual Studio/CMake files, inject compiler flags into generated
+projects, invoke MSBuild directly to bypass regeneration, copy dependencies
+from another checkout, disable the sandbox, or try alternate configure
+commands. Stop and ask the user to run `cmake --preset windows-release` outside
+the sandbox. After the user confirms that configuration completed, agents may
+run the normal build and test preset commands inside the sandbox.
+
+Agents should make the same request whenever a build-system input such as
+`CMakeLists.txt`, `CMakePresets.json`, `vcpkg.json`, or a file under `cmake/`
+changes and the existing build tree therefore requires regeneration.
