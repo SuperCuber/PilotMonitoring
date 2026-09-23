@@ -146,10 +146,22 @@ if(BUILD_TESTING)
 endif()
 
 add_custom_target(package ALL
-  COMMAND "${CMAKE_COMMAND}" -E rm -rf "${PILOTMONITORING_PACKAGE_DIR}"
-  COMMAND "${CMAKE_COMMAND}" --install "${CMAKE_BINARY_DIR}"
-          --config "$<CONFIG>"
-          --prefix "${PILOTMONITORING_PACKAGE_DIR}"
+  COMMAND "${CMAKE_COMMAND}" -E rm -rf
+          "${PILOTMONITORING_PACKAGE_DIR}/PilotMonitoring/resources"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory
+          "${PILOTMONITORING_PACKAGE_DIR}/PilotMonitoring/resources"
+          "${PILOTMONITORING_PACKAGE_DIR}/PilotMonitoring/win_x64"
+  COMMAND "${CMAKE_COMMAND}" -E copy_directory
+          "${CMAKE_CURRENT_SOURCE_DIR}/distribution/resources"
+          "${PILOTMONITORING_PACKAGE_DIR}/PilotMonitoring/resources"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+          "${CMAKE_CURRENT_SOURCE_DIR}/distribution/README.txt"
+          "${PILOTMONITORING_PACKAGE_DIR}/PilotMonitoring/README.txt"
+  # Copy the plugin last: X-Plane may lock the loaded .xpl during development.
+  # A lock must not prevent the other package contents from being refreshed.
+  COMMAND "${CMAKE_COMMAND}" -E copy
+          "$<TARGET_FILE:PilotMonitoring>"
+          "${PILOTMONITORING_PACKAGE_DIR}/PilotMonitoring/win_x64/PilotMonitoring.xpl"
   DEPENDS ${PILOTMONITORING_PACKAGE_DEPENDS}
   USES_TERMINAL
   VERBATIM

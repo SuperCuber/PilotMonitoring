@@ -45,15 +45,26 @@ The C172 and B738 Lua files are loaded by the tests from the source
 `resources/` directory. The installed plugin loads the matching file from its
 packaged `resources/` directory based on the aircraft ICAO dataref.
 
+## Building while X-Plane is running
+
+Keeping X-Plane open while developing is a valid, supported workflow. Windows
+locks a loaded `PilotMonitoring.xpl`, so the package target cannot replace that
+one file. Packaging deliberately refreshes the package README and all resources
+before copying the `.xpl` last. The final copy can therefore fail while all
+other package contents remain current. Close X-Plane and run the normal build
+command again when the packaged plugin itself needs to be refreshed.
+
+Agents that see the final `.xpl` copy fail must tell the user that X-Plane is
+running and the packaged `PilotMonitoring.xpl` was not updated. This is a valid
+development condition, not an error requiring a workaround.
+
 ## Installing into X-Plane
 
 Install or link the staged `package\PilotMonitoring` directory under X-Plane's
 `Resources\plugins` directory. For example, once the destination is adjusted:
 
 ```powershell
-New-Item -ItemType SymbolicLink `
-  -Path 'C:\X-Plane 12\Resources\plugins\PilotMonitoring' `
-  -Target (Resolve-Path build\windows-release\package\PilotMonitoring)
+New-Item -ItemType SymbolicLink -Path 'C:\X-Plane 12\Resources\plugins\PilotMonitoring' -Target (Resolve-Path build\windows-release\package\PilotMonitoring)
 ```
 
 ## Sandbox limitation
@@ -87,6 +98,8 @@ commands. Stop and ask the user to run `cmake --preset windows-release` outside
 the sandbox. After the user confirms that configuration completed, agents may
 run the normal build and test preset commands inside the sandbox.
 
-Agents should make the same request whenever a build-system input such as
-`CMakeLists.txt`, `CMakePresets.json`, `vcpkg.json`, or a file under `cmake/`
-changes and the existing build tree therefore requires regeneration.
+Agents should run the normal build command without first checking whether the
+build tree needs regeneration, even after build-system inputs change. They must
+not proactively ask the user to configure or inspect timestamps to predict the
+condition. The request to configure outside the sandbox should be made only
+after the build itself reports one of the failures above.
